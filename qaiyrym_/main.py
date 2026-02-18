@@ -202,6 +202,7 @@ def get_chat_system_instruction(user_lang: str, role: str = "GUEST", chat_histor
         "• Используй <code> для терминов\n"
         "• Оформляй важное <b>жирным</b>\n"
         "• Избегай скучных списков\n"
+            base += "\n\nВАЖНО: Форматируй ответ ТОЛЬКО Markdown: *жирный*, _курсив_, __подчёркнутый__, ~зачёркнутый~, `код`, ```\nблок кода\n```, [текст](URL). НЕ используй HTML-теги <b>, <i>, <code> — они ломают отображение в Telegram. Делай текст красивым и читаемым!"
     )
    
     # Приветствие только при старте
@@ -550,11 +551,18 @@ async def chat_mode_message(message: Message, state: FSMContext) -> None:
             chat_history = chat_history[-20:]
        
         await state.update_data(chat_history=chat_history)
-       
-        # ОТПРАВЛЯЕМ ответ
-        safe_reply = reply.replace("<", "&lt;").replace(">", "&gt;")
-        await message.answer(safe_reply, parse_mode=ParseMode.HTML)
-       
+    
+                # ОТПРАВЛЯЕМ ответ как MarkdownV2 — это самый стабильный вариант
+        try:
+            await message.answer(
+                reply,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                disable_web_page_preview=True  # чтобы ссылки не разворачивались в превью
+            )
+        except Exception as e:
+            # Если Telegram ругается на форматирование (редко бывает)
+            logger.warning(f"MarkdownV2 не сработал: {e}")
+            await message.answer(reply)  # отправляем чистый текст как запасной вариант
     except Exception as e:
         logger.error(f"[CHAT ERROR] {e}")
         await message.answer("Я немного завис, попробуй еще раз!")
