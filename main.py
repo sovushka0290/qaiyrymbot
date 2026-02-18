@@ -387,22 +387,21 @@ async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> N
         await state.set_state(OnboardingState.guest_menu)
         await callback.message.edit_text(t("intro_guest", lang), reply_markup=guest_menu_keyboard(lang))
     await callback.answer()
-@router.callback_query(F.data == "menu:chat")
-async def menu_chat(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    logger.info(f"[MENU] User {callback.from_user.id} -> Общение")
-    await state.set_state(OnboardingState.chat_mode)
-    await callback.message.answer(t("chat_mode_on", lang))
-    await callback.answer()
 @router.callback_query(F.data == "menu:about")
 async def menu_about(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
     logger.info(f"[MENU] User {callback.from_user.id} -> О проекте")
     await state.set_state(OnboardingState.about_submenu)
-    await callback.message.edit_text(t("about", lang), reply_markup=about_submenu_keyboard(lang))
+    
+    # Отправляем новое сообщение вместо edit — это решает проблему "not modified"
+    await callback.message.answer(
+        t("about", lang),
+        reply_markup=about_submenu_keyboard(lang)
+    )
     await callback.answer()
+
+
 @router.callback_query(F.data.startswith("about:"))
 async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":")[1]
@@ -416,8 +415,16 @@ async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> N
         "details": t("details", lang),
     }
     text = text_map.get(action, t("about", lang))
-    await callback.message.edit_text(text, reply_markup=about_submenu_keyboard(lang))
+    
+    # Отправляем новое сообщение вместо edit
+    await callback.message.answer(
+        text,
+        reply_markup=about_submenu_keyboard(lang),
+        disable_notification=True  # без лишнего уведомления
+    )
     await callback.answer()
+
+
 @router.callback_query(F.data == "menu:back_to_main")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
@@ -427,19 +434,31 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
    
     if role == "MEMBER":
         await state.set_state(OnboardingState.member_menu)
-        await callback.message.edit_text(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
+        await callback.message.answer(
+            t("intro_member", lang),
+            reply_markup=member_menu_keyboard(lang)
+        )
     else:
         await state.set_state(OnboardingState.guest_menu)
-        await callback.message.edit_text(t("intro_guest", lang), reply_markup=guest_menu_keyboard(lang))
+        await callback.message.answer(
+            t("intro_guest", lang),
+            reply_markup=guest_menu_keyboard(lang)
+        )
     await callback.answer()
+
+
 @router.callback_query(F.data == "menu:join")
 async def menu_join(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
     logger.info(f"[MENU] User {callback.from_user.id} -> Регистрация")
     await state.set_state(OnboardingState.registration_name)
-    await callback.message.answer(t("join_intro", lang) + "\n\n" + t("ask_name", lang))
+    await callback.message.answer(
+        t("join_intro", lang) + "\n\n" + t("ask_name", lang)
+    )
     await callback.answer()
+
+
 @router.message(OnboardingState.registration_name, F.text)
 async def reg_name(message: Message, state: FSMContext) -> None:
     name = message.text.strip()
@@ -448,6 +467,8 @@ async def reg_name(message: Message, state: FSMContext) -> None:
     lang = data.get("lang") or DEFAULT_LANG
     await state.set_state(OnboardingState.registration_age)
     await message.answer(t("ask_age", lang))
+
+
 @router.message(OnboardingState.registration_age, F.text)
 async def reg_age(message: Message, state: FSMContext) -> None:
     text = message.text.strip()
@@ -467,6 +488,8 @@ async def reg_age(message: Message, state: FSMContext) -> None:
     await state.update_data(age=age)
     await state.set_state(OnboardingState.registration_skill)
     await message.answer(t("ask_skill", lang))
+
+
 @router.message(OnboardingState.registration_skill, F.text)
 async def reg_skill(message: Message, state: FSMContext) -> None:
     skill = message.text.strip()
@@ -484,17 +507,27 @@ async def reg_skill(message: Message, state: FSMContext) -> None:
         logger.info(f"[REGISTRATION] Пользователь {user_id} зарегистрирован")
         await state.clear()
         await state.set_state(OnboardingState.member_menu)
-        await message.answer(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
+        await message.answer(
+            t("intro_member", lang),
+            reply_markup=member_menu_keyboard(lang)
+        )
     else:
         await message.answer("❌ Ошибка при сохранении. Попробуйте позже.")
         await state.clear()
+
+
 @router.callback_query(F.data == "menu:instruction")
 async def menu_instruction(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
     logger.info(f"[MENU] User {callback.from_user.id} -> Инструкция")
-    await callback.message.answer(t("instruction", lang), reply_markup=member_menu_keyboard(lang))
+    await callback.message.answer(
+        t("instruction", lang),
+        reply_markup=member_menu_keyboard(lang)
+    )
     await callback.answer()
+
+
 @router.callback_query(F.data == "menu:profile")
 async def menu_profile(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
@@ -503,11 +536,18 @@ async def menu_profile(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer("❌ Мини-приложение пока не настроено.")
         await callback.answer()
         return
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Открыть Mini App", web_app=WebAppInfo(url=WEBAPP_URL))
     ]])
-    await callback.message.answer("🧭 Откройте мини-приложение", reply_markup=keyboard)
+    
+    await callback.message.answer(
+        "🧭 Откройте мини-приложение",
+        reply_markup=keyboard
+    )
     await callback.answer()
+
+
 @router.message(OnboardingState.chat_mode, F.text)
 async def chat_mode_message(message: Message, state: FSMContext) -> None:
     """Обработчик чата с историей и фильтрацией."""
@@ -525,6 +565,62 @@ async def chat_mode_message(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
     role = get_user_role(user_id)
+   
+    # ИНИЦИАЛИЗИРУЕМ или берем историю
+    if "chat_history" not in data:
+        data["chat_history"] = []
+   
+    chat_history = data["chat_history"]
+    logger.info(f"[CHAT] User {user_id} ({role}) -> {user_text[:50]}... (история: {len(chat_history)} сообщений)")
+   
+    # ДОБАВЛЯЕМ сообщение в историю
+    chat_history.append({"role": "user", "content": user_text})
+   
+    # Эффект печатания
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+   
+    # ФОРМИРУЕМ системный промпт с длиной истории
+    system_instruction = get_chat_system_instruction(lang, role=role, chat_history_len=len(chat_history))
+   
+    # ДОБАВЛЯЕМ контекст в конец
+    if KNOWLEDGE_MANIFEST:
+        system_instruction += f"\n\n[CONTEXT_DATA]\n{KNOWLEDGE_MANIFEST}\n[END_CONTEXT_DATA]"
+   
+    # ФОРМАТИРУЕМ историю для Gemini
+    formatted_messages = []
+    for msg in chat_history:
+        prefix = "🧑 ПОЛЬЗОВАТЕЛЬ:" if msg["role"] == "user" else "🤖 КОМПАС:"
+        formatted_messages.append(f"{prefix} {msg['content']}")
+   
+    full_prompt = "\n\n".join(formatted_messages)
+   
+    try:
+        # ВЫЗЫВАЕМ Gemini
+        reply = await ask_gemini(full_prompt, system_instruction, user_lang=lang, skip_lang_instruction=True)
+       
+        # СОХРАНЯЕМ ответ в историю
+        chat_history.append({"role": "model", "content": reply})
+       
+        # ОГРАНИЧИВАЕМ память (max 20 сообщений)
+        if len(chat_history) > 20:
+            chat_history = chat_history[-20:]
+       
+        await state.update_data(chat_history=chat_history)
+       
+        # ОТПРАВЛЯЕМ ответ как MarkdownV2 (самый стабильный)
+        try:
+            await message.answer(
+                reply,
+                parse_mode=ParseMode.MARKDOWN_V2,
+                disable_web_page_preview=True
+            )
+        except Exception as e:
+            logger.warning(f"MarkdownV2 failed: {e}")
+            await message.answer(reply)  # чистый текст как fallback
+       
+    except Exception as e:
+        logger.error(f"[CHAT ERROR] {e}")
+        await message.answer("Я немного завис, попробуй еще раз!")
    
     # ИНИЦИАЛИЗИРУЕМ или берем историю
     if "chat_history" not in data:
