@@ -355,14 +355,30 @@ async def cmd_start(message: Message, state: FSMContext) -> None:
     await state.clear()
     await state.set_state(OnboardingState.choose_language)
     await message.answer(t("choose_lang", DEFAULT_LANG), reply_markup=lang_keyboard())
-@router.callback_query(F.data.startswith("lang:"))
-async def process_lang(callback: CallbackQuery, state: FSMContext) -> None:
-    lang = callback.data.split(":")[1]
-    user_id = str(callback.from_user.id)
-    set_user_language(user_id, lang)
-    await state.update_data(lang=lang)
-    role = get_user_role(user_id)
-    logger.info(f"[LANG] User {user_id} выбрал {lang}, роль: {role}")
+@router.callback_query(F.data.startswith("about:"))
+async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> None:
+    action = callback.data.split(":")[1]
+    data = await state.get_data()
+    lang = data.get("lang") or DEFAULT_LANG
+   
+    text_map = {
+        "mission": t("mission", lang),
+        "creator": t("creator", lang),
+        "partners": t("partners", lang),
+        "details": t("details", lang),
+    }
+    text = text_map.get(action, t("about", lang))
+    
+    # Отправляем новое сообщение вместо редактирования — это решает ошибку "message is not modified"
+    await callback.message.delete()  # ← добавь эту строку перед answer
+    await callback.message.answer(
+        text,
+        reply_markup=about_submenu_keyboard(lang),
+        disable_notification=True  # чтобы не спамило уведомлением
+    )
+    
+    # Закрываем callback, чтобы Telegram не показывал "часики"
+    await callback.answer()
    
     if role == "MEMBER":
         await state.set_state(OnboardingState.member_menu)
