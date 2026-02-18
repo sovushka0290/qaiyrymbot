@@ -26,11 +26,12 @@ from aiogram.types import (
 from dotenv import load_dotenv
 from fastapi import FastAPI
 import uvicorn
-from fastapi.staticfiles import StaticFiles  # Добавлено для статических файлов
+from fastapi.staticfiles import StaticFiles
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
+
 # ═══════════════════════════════════════════════════════════════════════════
 # КОНФИГУРАЦИЯ
 # ═══════════════════════════════════════════════════════════════════════════
@@ -42,6 +43,7 @@ if not BOT_TOKEN or not GEMINI_API_KEY:
     logger.critical("❌ ОШИБКА: Укажите BOT_TOKEN и GEMINI_API_KEY в .env")
     sys.exit(1)
 DEFAULT_LANG = "ru"
+
 # ═══════════════════════════════════════════════════════════════════════════
 # GOOGLE SHEETS
 # ═══════════════════════════════════════════════════════════════════════════
@@ -49,16 +51,14 @@ GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "qaiyrym-credenti
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Волонтёры")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
 def get_sheets_client():
-    """Инициализация клиента Google Sheets."""
     if not GOOGLE_SHEET_ID:
         logger.warning("[SHEETS] GOOGLE_SHEET_ID не установлен в .env")
         return None, None
-   
     if not os.path.exists(GOOGLE_CREDENTIALS_PATH):
         logger.warning(f"[SHEETS] Файл {GOOGLE_CREDENTIALS_PATH} не найден")
         return None, None
-   
     try:
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=SCOPES)
         gc = gspread.authorize(creds)
@@ -68,12 +68,11 @@ def get_sheets_client():
     except Exception as e:
         logger.error(f"[SHEETS ERROR] {e}")
         return None, None
+
 def append_volunteer_to_sheets(user_id: str, name: str, age: int, skill: str, lang: str, username: str = "") -> bool:
-    """Добавляет волонтёра в Google Sheets."""
     sheet, sheet_name = get_sheets_client()
     if not sheet:
         return False
-   
     try:
         worksheet = sheet.worksheet(sheet_name)
         row = [user_id, name, age, skill, lang, username, datetime.now().isoformat()]
@@ -83,13 +82,14 @@ def append_volunteer_to_sheets(user_id: str, name: str, age: int, skill: str, la
     except Exception as e:
         logger.error(f"[SHEETS ERROR] {e}")
         return False
+
 # ═══════════════════════════════════════════════════════════════════════════
 # БАЗА ДАННЫХ
 # ═══════════════════════════════════════════════════════════════════════════
 USER_DB_FILE = "users_db.json"
 USERS_DATA: Dict[str, Dict[str, Any]] = {}
+
 def load_users_db():
-    """Загружает БД пользователей."""
     global USERS_DATA
     try:
         if os.path.exists(USER_DB_FILE):
@@ -101,20 +101,18 @@ def load_users_db():
     except Exception as e:
         logger.error(f"[DB ERROR] {e}")
         USERS_DATA = {}
+
 def save_users_db():
-    """Сохраняет БД пользователей."""
     try:
         with open(USER_DB_FILE, "w", encoding="utf-8") as f:
             json.dump(USERS_DATA, f, ensure_ascii=False, indent=2)
     except Exception as e:
         logger.error(f"[DB ERROR] {e}")
+
 def get_user_role(user_id: str) -> str:
-    """Возвращает роль пользователя."""
-    if user_id in USERS_DATA:
-        return USERS_DATA[user_id].get("role", "GUEST")
-    return "GUEST"
+    return USERS_DATA.get(user_id, {}).get("role", "GUEST")
+
 def save_user_registration(user_id: str, name: str, age: int, skill: str, lang: str, username: str = "") -> bool:
-    """Сохраняет регистрацию пользователя."""
     try:
         USERS_DATA[user_id] = {
             "user_id": user_id,
@@ -132,20 +130,20 @@ def save_user_registration(user_id: str, name: str, age: int, skill: str, lang: 
     except Exception as e:
         logger.error(f"[DB ERROR] {e}")
         return False
+
 def set_user_language(user_id: str, lang: str):
-    """Сохраняет язык пользователя."""
     if user_id not in USERS_DATA:
         USERS_DATA[user_id] = {"role": "GUEST"}
     USERS_DATA[user_id]["lang"] = lang
     save_users_db()
+
 def get_all_member_ids() -> List[str]:
-    """Возвращает список волонтеров."""
-    return [user_id for user_id, data in USERS_DATA.items() if data.get("role") == "MEMBER"]
+    return [uid for uid, data in USERS_DATA.items() if data.get("role") == "MEMBER"]
+
 # ═══════════════════════════════════════════════════════════════════════════
 # KNOWLEDGE.txt
 # ═══════════════════════════════════════════════════════════════════════════
 def load_manifest() -> str:
-    """Загружает knowledge.txt."""
     paths = [
         os.path.join(os.path.dirname(os.path.abspath(__file__)), "knowledge.txt"),
         os.path.join(os.getcwd(), "knowledge.txt"),
@@ -161,50 +159,47 @@ def load_manifest() -> str:
             continue
         except Exception as e:
             logger.error(f"[MANIFEST] ОШИБКА: {e}")
-            continue
     logger.warning("[MANIFEST] knowledge.txt не найден")
     return ""
+
 KNOWLEDGE_MANIFEST = load_manifest()
+
 # ═══════════════════════════════════════════════════════════════════════════
 # GEMINI
 # ═══════════════════════════════════════════════════════════════════════════
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
 GEMINI_FALLBACK_MODEL = "gemini-2.0-flash"
 _client = None
+
 def get_gemini_client():
-    """Инициализация Gemini клиента."""
     global _client
     if _client is None:
         _client = genai.Client(api_key=GEMINI_API_KEY)
         logger.info("[GEMINI] Клиент инициализирован")
     return _client
+
 def get_chat_system_instruction(user_lang: str, role: str = "GUEST", chat_history_len: int = 0) -> str:
-    """Формирует системный промпт для ИИ."""
     lang = user_lang if user_lang in ("ru", "kz") else "ru"
     lang_name = "русском" if lang == "ru" else "казахском"
-   
+    
     base = (
         "Ты — Компас, ИИ-координатор проекта QAIYRYM.\n\n"
-       
         "🎯 ГЛАВНАЯ ЗАДАЧА — ЗАДАВАЙ ВОПРОСЫ!\n"
         "Твоя задача — ВЫТЯГИВАТЬ ИНФОРМАЦИЮ, а не просто отвечать.\n"
         "Ты ведешь ИНТЕРВЬЮ. После каждого ответа задай 1-2 вопроса!\n\n"
-       
         "СТРАТЕГИЯ:\n"
         "1. ИНТЕРВЬЮ: Каждый ответ = вопрос в конце\n"
         "2. ПОРЦИИ: Не рассказывай всё сразу, давай 30% информации\n"
         "3. ГИБКОСТЬ: 3-4 предложения обычно, подробнее если просит\n"
         "4. ЛИЧНОСТЬ: Используй 'Кстати, а ты...', 'Интересно узнать...'\n"
         "5. ЭКСТРАВЕРТ: Предлагай помощь, интересуйся деталями\n\n"
-       
         "ТЕХНИКА:\n"
         f"• Язык: {lang_name} ({lang})\n"
-        "• Используй <code> для терминов\n"
-        "• Оформляй важное <b>жирным</b>\n"
-        "• Избегай скучных списков\n"
+        "• Форматируй ответ ТОЛЬКО Markdown: *жирный*, _курсив_, __подчёркнутый__, ~зачёркнутый~, `код`, ```блок кода```, [текст](URL).\n"
+        "• НЕ используй HTML-теги <b>, <i>, <code> — они ломают отображение в Telegram.\n"
+        "• Делай текст красивым и читаемым.\n"
     )
-   
-    # Приветствие только при старте
+    
     if chat_history_len <= 2:
         base += (
             "\n⭐ ПЕРВОЕ СООБЩЕНИЕ:\n"
@@ -214,15 +209,15 @@ def get_chat_system_instruction(user_lang: str, role: str = "GUEST", chat_histor
         )
     else:
         base += "\n⭐ ПОСЛЕДУЮЩИЕ: НЕ повторяй приветствие, продолжи диалог.\n"
-   
+    
     if role == "MEMBER":
         base += "\n👤 РЕЖИМ УЧАСТНИКА: Обсуждай глубокие темы, детали помощи."
     else:
         base += "\n👤 РЕЖИМ ГОСТЯ: Будь дружелюбен, поощряй присоединиться."
-   
+    
     return base
+
 async def ask_gemini(prompt: str, system_prompt: str | None = None, user_lang: str = DEFAULT_LANG, skip_lang_instruction: bool = False) -> str:
-    """Вызов Gemini с таймаутом."""
     base = system_prompt or ""
     if not skip_lang_instruction:
         lang = user_lang if user_lang in ("ru", "kz") else DEFAULT_LANG
@@ -231,6 +226,7 @@ async def ask_gemini(prompt: str, system_prompt: str | None = None, user_lang: s
         system_instruction = f"{base}\n\n{lang_instruction}" if base else lang_instruction
     else:
         system_instruction = base
+    
     def _generate_sync(model_name: str) -> str:
         client = get_gemini_client()
         config_kw = {"max_output_tokens": 512}
@@ -239,6 +235,7 @@ async def ask_gemini(prompt: str, system_prompt: str | None = None, user_lang: s
         config = types.GenerateContentConfig(**config_kw)
         response = client.models.generate_content(model=model_name, contents=prompt, config=config)
         return response.text.strip() if response.text else "Извините, не могу ответить."
+    
     try:
         return await asyncio.wait_for(
             asyncio.to_thread(_generate_sync, GEMINI_MODEL_NAME),
@@ -264,16 +261,17 @@ async def ask_gemini(prompt: str, system_prompt: str | None = None, user_lang: s
                 return "К сожалению, не могу ответить."
         logger.error(f"[GEMINI ERROR] {e}")
         return "К сожалению, не могу ответить."
+
 # ═══════════════════════════════════════════════════════════════════════════
 # ТЕКСТЫ
 # ═══════════════════════════════════════════════════════════════════════════
 def t(key: str, lang: str) -> str:
-    """Получить текст по ключу."""
     lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
     val = TEXTS.get(key)
     if isinstance(val, dict):
         return val.get(lang, val.get(DEFAULT_LANG, ""))
     return str(val or "")
+
 TEXTS = {
     "choose_lang": {"ru": "Выберите язык:", "kz": "Тілді таңдаңыз:"},
     "intro_guest": {"ru": "Я — Компас, твой координатор QAIYRYM. Выбери действие:", "kz": "Мен — Компас. Әрекетті таңдаңыз:"},
@@ -297,9 +295,11 @@ TEXTS = {
     "menu_join": {"ru": "🤝 Как вступить?", "kz": "🤝 Қалай қосылуға болады?"},
     "menu_instruction": {"ru": "📘 Инструкция", "kz": "📘 Нұсқаулық"},
     "menu_profile": {"ru": "🧭 Профиль", "kz": "🧭 Профиль"},
+    "menu_landing": {"ru": "🌐 Подробнее о проекте", "kz": "🌐 Толығырақ жоба туралы"},
     "back": {"ru": "🔙 Назад", "kz": "🔙 Артқа"},
     "use_menu_buttons": {"ru": "👇 Используйте кнопки меню.", "kz": "👇 Мәзір түймелерін пайдаланыңыз."},
 }
+
 # ═══════════════════════════════════════════════════════════════════════════
 # FSM
 # ═══════════════════════════════════════════════════════════════════════════
@@ -312,21 +312,27 @@ class OnboardingState(StatesGroup):
     registration_name = State()
     registration_age = State()
     registration_skill = State()
+
 # ═══════════════════════════════════════════════════════════════════════════
 # КЛАВИАТУРЫ
 # ═══════════════════════════════════════════════════════════════════════════
 def lang_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Қазақша 🇰🇿", callback_data="lang:kz"),
-         InlineKeyboardButton(text="Русский 🇷🇺", callback_data="lang:ru")]
+        [
+            InlineKeyboardButton(text="Қазақша 🇰🇿", callback_data="lang:kz"),
+            InlineKeyboardButton(text="Русский 🇷🇺", callback_data="lang:ru")
+        ]
     ])
+
 def guest_menu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=t("menu_chat", lang), callback_data="menu:chat")],
         [InlineKeyboardButton(text=t("menu_about", lang), callback_data="menu:about")],
         [InlineKeyboardButton(text=t("menu_join", lang), callback_data="menu:join")],
+        [InlineKeyboardButton(text=t("menu_landing", lang), web_app=WebAppInfo(url=f"{WEBAPP_URL.rsplit('/', 1)[0]}/landing.html"))],
     ])
+
 def member_menu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -334,7 +340,9 @@ def member_menu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=t("menu_about", lang), callback_data="menu:about")],
         [InlineKeyboardButton(text=t("menu_instruction", lang), callback_data="menu:instruction")],
         [InlineKeyboardButton(text=t("menu_profile", lang), callback_data="menu:profile")],
+        [InlineKeyboardButton(text=t("menu_landing", lang), web_app=WebAppInfo(url=f"{WEBAPP_URL.rsplit('/', 1)[0]}/landing.html"))],
     ])
+
 def about_submenu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
     lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -342,72 +350,76 @@ def about_submenu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="👤 Создатель", callback_data="about:creator")],
         [InlineKeyboardButton(text="🤝 Партнёры", callback_data="about:partners")],
         [InlineKeyboardButton(text="📋 Подробности", callback_data="about:details")],
+        [InlineKeyboardButton(text=t("menu_landing", lang), web_app=WebAppInfo(url=f"{WEBAPP_URL.rsplit('/', 1)[0]}/landing.html"))],
         [InlineKeyboardButton(text=t("back", lang), callback_data="menu:back_to_main")],
     ])
+
 # ═══════════════════════════════════════════════════════════════════════════
 # HANDLERS
 # ═══════════════════════════════════════════════════════════════════════════
 router = Router()
+
 @router.message(CommandStart())
 async def cmd_start(message: Message, state: FSMContext) -> None:
     user_id = str(message.from_user.id)
     logger.info(f"[START] User {user_id}")
     await state.clear()
+    try:
+        await message.delete()
+    except:
+        pass
     await state.set_state(OnboardingState.choose_language)
-    await message.answer(t("choose_lang", DEFAULT_LANG), reply_markup=lang_keyboard())
-@router.callback_query(F.data.startswith("about:"))
-async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> None:
-    action = callback.data.split(":")[1]
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-   
-    text_map = {
-        "mission": t("mission", lang),
-        "creator": t("creator", lang),
-        "partners": t("partners", lang),
-        "details": t("details", lang),
-    }
-    text = text_map.get(action, t("about", lang))
-    
-    # Отправляем новое сообщение вместо редактирования — это решает ошибку "message is not modified"
-    await callback.message.delete()  # ← добавь эту строку перед answer
-    await callback.message.answer(
-        text,
-        reply_markup=about_submenu_keyboard(lang),
-        disable_notification=True  # чтобы не спамило уведомлением
+    await message.answer(
+        t("choose_lang", DEFAULT_LANG),
+        reply_markup=lang_keyboard()
     )
+    logger.info(f"[START] Показана клавиатура языка для {user_id}")
+
+@router.callback_query(F.data.startswith("lang:"))
+async def process_lang(callback: CallbackQuery, state: FSMContext) -> None:
+    lang = callback.data.split(":")[1]
+    user_id = str(callback.from_user.id)
+    set_user_language(user_id, lang)
+    await state.update_data(lang=lang)
+    role = get_user_role(user_id)
+    logger.info(f"[LANG] User {user_id} выбрал {lang}, роль: {role}")
     
-    # Закрываем callback, чтобы Telegram не показывал "часики"
-    await callback.answer()
-   
     if role == "MEMBER":
         await state.set_state(OnboardingState.member_menu)
-        await callback.message.edit_text(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
+        await callback.message.answer(
+            t("intro_member", lang),
+            reply_markup=member_menu_keyboard(lang)
+        )
     else:
         await state.set_state(OnboardingState.guest_menu)
-        await callback.message.edit_text(t("intro_guest", lang), reply_markup=guest_menu_keyboard(lang))
-    await callback.answer()
+        await callback.message.answer(
+            t("intro_guest", lang),
+            reply_markup=guest_menu_keyboard(lang)
+        )
+    
+    try:
+        await callback.message.delete()
+    except:
+        pass
+    await callback.answer("Язык выбран!")
+
 @router.callback_query(F.data == "menu:about")
 async def menu_about(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
     logger.info(f"[MENU] User {callback.from_user.id} -> О проекте")
     await state.set_state(OnboardingState.about_submenu)
-    
-    # Отправляем новое сообщение вместо edit — это решает проблему "not modified"
     await callback.message.answer(
         t("about", lang),
         reply_markup=about_submenu_keyboard(lang)
     )
     await callback.answer()
 
-
 @router.callback_query(F.data.startswith("about:"))
 async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> None:
     action = callback.data.split(":")[1]
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
-   
     text_map = {
         "mission": t("mission", lang),
         "creator": t("creator", lang),
@@ -415,15 +427,12 @@ async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> N
         "details": t("details", lang),
     }
     text = text_map.get(action, t("about", lang))
-    
-    # Отправляем новое сообщение вместо edit
     await callback.message.answer(
         text,
         reply_markup=about_submenu_keyboard(lang),
-        disable_notification=True  # без лишнего уведомления
+        disable_notification=True
     )
     await callback.answer()
-
 
 @router.callback_query(F.data == "menu:back_to_main")
 async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
@@ -431,7 +440,6 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
     lang = data.get("lang") or DEFAULT_LANG
     user_id = str(callback.from_user.id)
     role = get_user_role(user_id)
-   
     if role == "MEMBER":
         await state.set_state(OnboardingState.member_menu)
         await callback.message.answer(
@@ -446,7 +454,6 @@ async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
         )
     await callback.answer()
 
-
 @router.callback_query(F.data == "menu:join")
 async def menu_join(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
@@ -458,7 +465,6 @@ async def menu_join(callback: CallbackQuery, state: FSMContext) -> None:
     )
     await callback.answer()
 
-
 @router.message(OnboardingState.registration_name, F.text)
 async def reg_name(message: Message, state: FSMContext) -> None:
     name = message.text.strip()
@@ -468,27 +474,22 @@ async def reg_name(message: Message, state: FSMContext) -> None:
     await state.set_state(OnboardingState.registration_age)
     await message.answer(t("ask_age", lang))
 
-
 @router.message(OnboardingState.registration_age, F.text)
 async def reg_age(message: Message, state: FSMContext) -> None:
     text = message.text.strip()
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
-   
     if not text.isdigit():
         await message.answer(t("invalid_age", lang))
         return
-   
     age = int(text)
     if age < 18:
         await message.answer(t("underage", lang))
         await state.clear()
         return
-   
     await state.update_data(age=age)
     await state.set_state(OnboardingState.registration_skill)
     await message.answer(t("ask_skill", lang))
-
 
 @router.message(OnboardingState.registration_skill, F.text)
 async def reg_skill(message: Message, state: FSMContext) -> None:
@@ -499,9 +500,7 @@ async def reg_skill(message: Message, state: FSMContext) -> None:
     name = data.get("name", "")
     age = data.get("age", 0)
     username = message.from_user.username or ""
-   
     success = save_user_registration(user_id, name, age, skill, lang, username)
-   
     if success:
         await message.answer(t("registered", lang))
         logger.info(f"[REGISTRATION] Пользователь {user_id} зарегистрирован")
@@ -515,7 +514,6 @@ async def reg_skill(message: Message, state: FSMContext) -> None:
         await message.answer("❌ Ошибка при сохранении. Попробуйте позже.")
         await state.clear()
 
-
 @router.callback_query(F.data == "menu:instruction")
 async def menu_instruction(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
@@ -527,7 +525,6 @@ async def menu_instruction(callback: CallbackQuery, state: FSMContext) -> None:
     )
     await callback.answer()
 
-
 @router.callback_query(F.data == "menu:profile")
 async def menu_profile(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
@@ -536,78 +533,48 @@ async def menu_profile(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer("❌ Мини-приложение пока не настроено.")
         await callback.answer()
         return
-    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Открыть Mini App", web_app=WebAppInfo(url=WEBAPP_URL))
     ]])
-    
     await callback.message.answer(
         "🧭 Откройте мини-приложение",
         reply_markup=keyboard
     )
     await callback.answer()
 
-
 @router.message(OnboardingState.chat_mode, F.text)
 async def chat_mode_message(message: Message, state: FSMContext) -> None:
-    """Обработчик чата с историей и фильтрацией."""
     user_text = (message.text or "").strip()
     if not user_text:
         return
-   
-    # ФИЛЬТР: пропускаем пустые слова
     skip_words = ["ок", "да", "нет", "привет", "привет!", "ха", "оке", "хорошо", "спасибо", "пока"]
     if user_text.lower() in skip_words:
         logger.info(f"[CHAT] Пустое сообщение скипнуто: {user_text}")
         return
-   
     user_id = str(message.from_user.id)
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
     role = get_user_role(user_id)
-   
-    # ИНИЦИАЛИЗИРУЕМ или берем историю
     if "chat_history" not in data:
         data["chat_history"] = []
-   
     chat_history = data["chat_history"]
     logger.info(f"[CHAT] User {user_id} ({role}) -> {user_text[:50]}... (история: {len(chat_history)} сообщений)")
-   
-    # ДОБАВЛЯЕМ сообщение в историю
     chat_history.append({"role": "user", "content": user_text})
-   
-    # Эффект печатания
     await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-   
-    # ФОРМИРУЕМ системный промпт с длиной истории
     system_instruction = get_chat_system_instruction(lang, role=role, chat_history_len=len(chat_history))
-   
-    # ДОБАВЛЯЕМ контекст в конец
     if KNOWLEDGE_MANIFEST:
         system_instruction += f"\n\n[CONTEXT_DATA]\n{KNOWLEDGE_MANIFEST}\n[END_CONTEXT_DATA]"
-   
-    # ФОРМАТИРУЕМ историю для Gemini
     formatted_messages = []
     for msg in chat_history:
         prefix = "🧑 ПОЛЬЗОВАТЕЛЬ:" if msg["role"] == "user" else "🤖 КОМПАС:"
         formatted_messages.append(f"{prefix} {msg['content']}")
-   
     full_prompt = "\n\n".join(formatted_messages)
-   
     try:
-        # ВЫЗЫВАЕМ Gemini
         reply = await ask_gemini(full_prompt, system_instruction, user_lang=lang, skip_lang_instruction=True)
-       
-        # СОХРАНЯЕМ ответ в историю
         chat_history.append({"role": "model", "content": reply})
-       
-        # ОГРАНИЧИВАЕМ память (max 20 сообщений)
         if len(chat_history) > 20:
             chat_history = chat_history[-20:]
-       
         await state.update_data(chat_history=chat_history)
-       
-        # ОТПРАВЛЯЕМ ответ как MarkdownV2 (самый стабильный)
         try:
             await message.answer(
                 reply,
@@ -616,92 +583,35 @@ async def chat_mode_message(message: Message, state: FSMContext) -> None:
             )
         except Exception as e:
             logger.warning(f"MarkdownV2 failed: {e}")
-            await message.answer(reply)  # чистый текст как fallback
-       
+            await message.answer(reply)
     except Exception as e:
         logger.error(f"[CHAT ERROR] {e}")
         await message.answer("Я немного завис, попробуй еще раз!")
-   
-    # ИНИЦИАЛИЗИРУЕМ или берем историю
-    if "chat_history" not in data:
-        data["chat_history"] = []
-   
-    chat_history = data["chat_history"]
-    logger.info(f"[CHAT] User {user_id} ({role}) -> {user_text[:50]}... (история: {len(chat_history)} сообщений)")
-   
-    # ДОБАВЛЯЕМ сообщение в историю
-    chat_history.append({"role": "user", "content": user_text})
-   
-    # Эффект печатания
-    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-   
-    # ФОРМИРУЕМ системный промпт с длиной истории
-    system_instruction = get_chat_system_instruction(lang, role=role, chat_history_len=len(chat_history))
-   
-    # ДОБАВЛЯЕМ контекст в конец
-    if KNOWLEDGE_MANIFEST:
-        system_instruction += f"\n\n[CONTEXT_DATA]\n{KNOWLEDGE_MANIFEST}\n[END_CONTEXT_DATA]"
-   
-    # ФОРМАТИРУЕМ историю для Gemini
-    formatted_messages = []
-    for msg in chat_history:
-        prefix = "🧑 ПОЛЬЗОВАТЕЛЬ:" if msg["role"] == "user" else "🤖 КОМПАС:"
-        formatted_messages.append(f"{prefix} {msg['content']}")
-   
-    full_prompt = "\n\n".join(formatted_messages)
-   
-    try:
-        # ВЫЗЫВАЕМ Gemini
-        reply = await ask_gemini(full_prompt, system_instruction, user_lang=lang, skip_lang_instruction=True)
-       
-        # СОХРАНЯЕМ ответ в историю
-        chat_history.append({"role": "model", "content": reply})
-       
-        # ОГРАНИЧИВАЕМ память (max 20 сообщений)
-        if len(chat_history) > 20:
-            chat_history = chat_history[-20:]
-       
-        await state.update_data(chat_history=chat_history)
-       
-        # ОТПРАВЛЯЕМ ответ
-        safe_reply = reply.replace("<", "&lt;").replace(">", "&gt;")
-        await message.answer(safe_reply, parse_mode=ParseMode.HTML)
-       
-    except Exception as e:
-        logger.error(f"[CHAT ERROR] {e}")
-        await message.answer("Я немного завис, попробуй еще раз!")
+
 @router.message(OnboardingState.guest_menu, F.text)
-async def guest_menu_text(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    await message.answer(t("use_menu_buttons", lang), reply_markup=guest_menu_keyboard(lang))
 @router.message(OnboardingState.member_menu, F.text)
-async def member_menu_text(message: Message, state: FSMContext) -> None:
+async def use_menu_buttons(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
-    await message.answer(t("use_menu_buttons", lang), reply_markup=member_menu_keyboard(lang))
+    await message.answer(t("use_menu_buttons", lang), reply_markup=guest_menu_keyboard(lang) if get_user_role(str(message.from_user.id)) == "GUEST" else member_menu_keyboard(lang))
+
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext, bot: Bot) -> None:
     user_id = str(message.from_user.id)
     if not ADMIN_ID or user_id != ADMIN_ID:
         await message.answer("❌ Нет доступа.")
         return
-   
     broadcast_text = message.text.replace("/broadcast", "").strip()
     if not broadcast_text:
         await message.answer("❌ Укажите текст: /broadcast <текст>")
         return
-   
     logger.info(f"[BROADCAST] Администратор {user_id} отправляет рассылку")
     member_ids = get_all_member_ids()
-   
     if not member_ids:
         await message.answer("❌ Нет участников.")
         return
-   
     success_count = 0
     error_count = 0
-   
     for member_id in member_ids:
         try:
             await bot.send_message(chat_id=int(member_id), text=broadcast_text)
@@ -709,20 +619,19 @@ async def cmd_broadcast(message: Message, state: FSMContext, bot: Bot) -> None:
         except Exception as e:
             error_count += 1
             logger.error(f"[BROADCAST ERROR] {member_id}: {e}")
-   
     result_text = f"📤 <b>Рассылка завершена!</b>\n\n✅ Успешно: {success_count}\n❌ Ошибок: {error_count}"
     await message.answer(result_text)
+
 @router.message(F.text, StateFilter(None))
 async def handle_unknown(message: Message, state: FSMContext) -> None:
     await state.set_state(OnboardingState.choose_language)
     await message.answer(t("choose_lang", DEFAULT_LANG), reply_markup=lang_keyboard())
+
 # ═══════════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════════
 app = FastAPI(title="QAIYRYM Compass Bot", version="1.4")
-
-# Монтируем статические файлы (для мини-app HTML)
-app.mount("/static", StaticFiles(directory="static"), name="static")  # Положи ai_studio_code.html в папку static
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
 @app.get("/health")
@@ -730,18 +639,14 @@ app.mount("/static", StaticFiles(directory="static"), name="static")  # Поло
 async def health_check():
     return {"status": "ok", "version": "1.4", "bot": "running"}
 
-# API для пользователя (для мини-app)
 @app.get("/user/{user_id}")
 async def get_user_data(user_id: str):
-    load_users_db()  # Обновляем БД
+    load_users_db()
     user_data = USERS_DATA.get(user_id, {"role": "GUEST"})
     return user_data
 
-# API для заявок (замени на реальный код с gspread, если есть лист "Заявки")
 @app.get("/requests")
 async def get_requests():
-    # Здесь подключи gspread к листу "Заявки"
-    # Пока mock
     return [
         {"type": "Продукты", "title": "Семья Ивановых", "desc": "Нужен продуктовый набор (5 детей)", "dist": "1.2 км"},
         {"type": "Медикаменты", "title": "Пенсионерка Анна", "desc": "Помощь в покупке лекарств", "dist": "0.5 км"},
@@ -754,7 +659,6 @@ async def run_bot():
         bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
         dp = Dispatcher(storage=MemoryStorage())
         dp.include_router(router)
-
         await bot.delete_webhook(drop_pending_updates=True)
         logger.info("[BOT] Polling запущен")
         await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
@@ -762,10 +666,7 @@ async def run_bot():
         logger.error(f"[BOT FATAL] {type(e).__name__}: {e}", exc_info=True)
 
 async def main():
-    # Запускаем бота в фоне
     asyncio.create_task(run_bot())
-
-    # Запускаем веб-сервер (Koyeb требует, чтобы процесс слушал порт)
     logger.info("[MAIN] Запуск uvicorn на 0.0.0.0:8000 ...")
     config = uvicorn.Config(
         app,
