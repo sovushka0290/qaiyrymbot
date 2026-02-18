@@ -344,6 +344,11 @@ def about_submenu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🤝 Партнёры", callback_data="about:partners")],
         [InlineKeyboardButton(text="📋 Подробности", callback_data="about:details")],
         [InlineKeyboardButton(text=t("back", lang), callback_data="menu:back_to_main")],
+        [InlineKeyboardButton(
+            text=t("menu_landing", lang),
+            web_app=WebAppInfo(url=f"{WEBAPP_URL.replace('ai_studio_code.html', 'landing.html')}")
+        )],
+        [InlineKeyboardButton(text=t("back", lang), callback_data="menu:back_to_main")],
     ])
 # ═══════════════════════════════════════════════════════════════════════════
 # HANDLERS
