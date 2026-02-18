@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QAIYRYM — Доверие, превращенное в код</title>
+    <!-- Подключаем шрифт Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0a0a0a;
+            --accent-blue: #0071e3;
+            --neon-blue: #00d2ff;
+            --text-main: #f5f5f7;
+            --text-dim: #86868b;
+            --glass: rgba(255, 255, 255, 0.04);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.5;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Анимация появления */
+        .reveal {
+            opacity: 0;
+            transform: translateY(30px);
+            transition: var(--transition);
+        }
+
+        .reveal.active {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Навигация */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 20px 5%;
+            background: rgba(10, 10, 10, 0.8);
+            backdrop-filter: blur(20px);
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.5rem;
+            letter-spacing: -1px;
+            background: linear-gradient(90deg, #fff, var(--neon-blue));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        /* Hero Секция */
+        .hero {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 0 10%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(0, 113, 227, 0.15) 0%, transparent 70%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: -1;
+        }
+
+        h1 {
+            font-size: clamp(2.5rem, 8vw, 5rem);
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 24px;
+            letter-spacing: -0.04em;
+        }
+
+        .gradient-text {
+            background: linear-gradient(180deg, #fff 0%, var(--neon-blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 16px 32px;
+            background: var(--accent-blue);
+            color: white;
+            text-decoration: none;
+            border-radius: 30px;
+            font-weight: 600;
+            font-size: 1.1rem;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0, 113, 227, 0.3);
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(0, 113, 227, 0.5);
+        }
+
+        /* Секция Проблема */
+        section {
+            padding: 140px 10%;
+        }
+
+        .section-tag {
+            color: var(--accent-blue);
+            text-transform: uppercase;
+            font-weight: 700;
+            font-size: 0.9rem;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        .problem-content {
+            max-width: 800px;
+        }
+
+        h2 {
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            margin-bottom: 30px;
+            letter-spacing: -0.03em;
+        }
+
+        .desc {
+            font-size: 1.5rem;
+            color: var(--text-dim);
+            max-width: 700px;
+        }
+
+        /* Карточки технологий */
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-top: 60px;
+        }
+
+        .card {
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            padding: 40px;
+            border-radius: 24px;
+            transition: border 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card:hover {
+            border-color: var(--accent-blue);
+        }
+
+        .card h3 {
+            font-size: 1.8rem;
+            margin-bottom: 15px;
+            background: linear-gradient(90deg, #fff, #888);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .card p {
+            color: var(--text-dim);
+            font-size: 1.1rem;
+        }
+
+        /* ESG Бизнес */
+        .business-box {
+            background: linear-gradient(135deg, rgba(0, 113, 227, 0.1) 0%, rgba(0, 0, 0, 0) 100%);
+            border-radius: 40px;
+            padding: 80px 10%;
+            border: 1px solid var(--glass-border);
+        }
+
+        /* Команда */
+        .team-section {
+            display: flex;
+            align-items: center;
+            gap: 60px;
+            flex-wrap: wrap;
+        }
+
+        .founder-img {
+            width: 300px;
+            height: 350px;
+            background: linear-gradient(45deg, #1a1a1a, #333);
+            border-radius: 30px;
+            object-fit: cover;
+            border: 1px solid var(--glass-border);
+        }
+
+        .founder-info h4 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+
+        .founder-tag {
+            background: rgba(0, 210, 255, 0.1);
+            color: var(--neon-blue);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        footer {
+            padding: 60px 10%;
+            border-top: 1px solid var(--glass-border);
+            text-align: center;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .team-section {
+                flex-direction: column;
+                text-align: center;
+            }
+            h1 { font-size: 3rem; }
+            .founder-img { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav>
+        <div class="logo">QAIYRYM</div>
+        <div>
+            <a href="#" class="btn" style="padding: 10px 20px; font-size: 0.9rem;">Присоединиться</a>
+        </div>
+    </nav>
+
+    <!-- HERO -->
+    <section class="hero">
+        <h1 class="reveal">QAIYRYM: <br><span class="gradient-text">Доверие, превращенное в код</span></h1>
+        <p class="desc reveal" style="margin-bottom: 40px;">Первая в Казахстане децентрализованная экосистема для прозрачного волонтерства.</p>
+        <div class="reveal">
+            <a href="https://t.me/your_bot_link" class="btn">Запустить бота</a>
+        </div>
+    </section>
+
+    <!-- PROBLEM -->
+    <section id="problem">
+        <div class="problem-content reveal">
+            <span class="section-tag">Проблема</span>
+            <h2>Старая система <br>больше не работает.</h2>
+            <p class="desc">Коррупция, поддельные чеки и горы бумажных отчетов убивают желание помогать. В Актобе тысячи людей хотят доверять, но не имеют инструментов для проверки.</p>
+        </div>
+    </section>
+
+    <!-- TECH -->
+    <section id="tech">
+        <span class="section-tag">Технологии</span>
+        <h2>Интеллект и защита.</h2>
+        <div class="tech-grid">
+            <div class="card reveal">
+                <h3>Gemini 2.5 Flash</h3>
+                <p>Нейросеть мгновенно анализирует фотографии чеков, выявляя подделки и несоответствия цен в реальном времени.</p>
+            </div>
+            <div class="card reveal" style="transition-delay: 0.2s;">
+                <h3>Solana Blockchain</h3>
+                <p>Все транзакции и акты помощи записываются в блокчейн. Данные невозможно удалить или изменить задним числом.</p>
+            </div>
+            <div class="card reveal" style="transition-delay: 0.4s;">
+                <h3>Zero-Trust Protocol</h3>
+                <p>Система не доверяет на слово. Помощь подтверждается мульти-подписью школы, волонтера и получателя.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- BUSINESS -->
+    <section id="business">
+        <div class="business-box reveal">
+            <span class="section-tag">Для бизнеса</span>
+            <h2>ESG-отчетность нового поколения.</h2>
+            <p class="desc" style="color: var(--text-main); margin-bottom: 30px;">Компании Актобе теперь могут получать автоматизированные, верифицированные отчеты о социальной ответственности.</p>
+            <p class="desc">Никакого гринвошинга. Только реальные цифры, подтвержденные блокчейном, для ваших инвесторов и общества.</p>
+        </div>
+    </section>
+
+    <!-- TEAM -->
+    <section id="team">
+        <div class="team-section">
+            <div class="founder-img reveal" style="background-image: url('https://via.placeholder.com/300x400/1a1a1a/ffffff?text=Founder'); background-size: cover; background-position: center;"></div>
+            <div class="founder-info reveal">
+                <span class="section-tag">Команда</span>
+                <h4>Алихан</h4>
+                <div style="margin-bottom: 20px;">
+                    <span class="founder-tag">Основатель</span>
+                    <span class="founder-tag">16 лет</span>
+                </div>
+                <p class="desc">«Мы не просто создаем бота. Мы строим протокол честности, где технологии делают мир прозрачнее, чем могут люди». </p>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>&copy; 2024 QAIYRYM Project. Сделано с верой в технологии. Актобе, Казахстан.</p>
+    </footer>
+
+    <script>
+        // Функция для отслеживания скролла и активации анимаций
+        const observerOptions = {
+            threshold: 0.1
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('active');
+                }
+            });
+        }, observerOptions);
+
+        document.querySelectorAll('.reveal').forEach(el => {
+            observer.observe(el);
+        });
+
+        // Плавная прокрутка для ссылок (если будут)
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+    </script>
+</body>
+</html>
