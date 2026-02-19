@@ -110,14 +110,8 @@ def get_user_role(user_id: str) -> str:
 def save_user_registration(user_id: str, name: str, age: int, skill: str, lang: str, username: str = "") -> bool:
     try:
         USERS_DATA[user_id] = {
-            "user_id": user_id,
-            "name": name,
-            "age": age,
-            "skill": skill,
-            "lang": lang,
-            "role": "MEMBER",
-            "registered_at": datetime.now().isoformat(),
-            "agreed": True
+            "user_id": user_id, "name": name, "age": age, "skill": skill,
+            "lang": lang, "role": "MEMBER", "registered_at": datetime.now().isoformat()
         }
         save_users_db()
         logger.info(f"[DB] Пользователь {user_id} зарегистрирован: {name}")
@@ -133,15 +127,10 @@ def set_user_language(user_id: str, lang: str):
     USERS_DATA[user_id]["lang"] = lang
     save_users_db()
 
-def get_all_member_ids() -> List[str]:
-    return [uid for uid, data in USERS_DATA.items() if data.get("role") == "MEMBER"]
-
 # ==================== KNOWLEDGE.txt ====================
 def load_manifest() -> str:
-    paths = [
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "knowledge.txt"),
-        os.path.join(os.getcwd(), "knowledge.txt"),
-    ]
+    paths = [os.path.join(os.path.dirname(os.path.abspath(__file__)), "knowledge.txt"),
+             os.path.join(os.getcwd(), "knowledge.txt")]
     for path in paths:
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -176,24 +165,13 @@ def get_chat_system_instruction(user_lang: str, role: str = "GUEST", chat_histor
     
     base = (
         "Ты — Компас, ИИ-координатор проекта QAIYRYM.\n\n"
-        "🎯 ГЛАВНАЯ ЗАДАЧА — ЗАДАВАЙ ВОПРОСЫ!\n"
-        "Ты ведёшь интервью. После каждого ответа задай 1-2 вопроса.\n\n"
-        "СТРАТЕГИЯ: порциями, живо, дружелюбно.\n"
+        "🎯 ГЛАВНАЯ ЗАДАЧА — ЗАДАВАЙ ВОПРОСЫ! После каждого ответа задай 1-2 вопроса.\n"
+        "Форматируй ответ ТОЛЬКО Markdown: *жирный*, _курсив_, `код`, [текст](ссылка).\n"
         f"• Язык: {lang_name} ({lang})\n"
-        "• Форматируй ответ ТОЛЬКО Markdown: *жирный*, _курсив_, `код`, [текст](ссылка).\n"
-        "• НЕ используй HTML-теги.\n"
     )
     
     if chat_history_len <= 2:
-        base += "\n⭐ ПЕРВОЕ СООБЩЕНИЕ: Можно поздороваться и задать первый вопрос.\n"
-    else:
-        base += "\n⭐ Продолжай диалог без повторного приветствия.\n"
-    
-    if role == "MEMBER":
-        base += "\n👤 РЕЖИМ УЧАСТНИКА: глубокие темы, детали помощи."
-    else:
-        base += "\n👤 РЕЖИМ ГОСТЯ: дружелюбно, поощряй присоединиться."
-    
+        base += "\n⭐ ПЕРВОЕ СООБЩЕНИЕ: Можно поздороваться.\n"
     return base
 
 async def ask_gemini(prompt: str, system_prompt: str | None = None, user_lang: str = DEFAULT_LANG, skip_lang_instruction: bool = False) -> str:
@@ -222,32 +200,33 @@ def t(key: str, lang: str) -> str:
     lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
     val = TEXTS.get(key)
     if isinstance(val, dict):
-        return val.get(lang, val.get(DEFAULT_LANG, ""))
-    return str(val or "")
+        return val.get(lang, val.get(DEFAULT_LANG, "Текст не найден"))
+    return str(val or "Текст не найден")
 
 TEXTS = {
     "choose_lang": {"ru": "Выберите язык:", "kz": "Тілді таңдаңыз:"},
     "agreement_text": {
-        "ru": "Мы собираем минимальные данные для работы бота:\n"
-              "• Telegram ID, имя, username\n"
-              "• Выбранный язык\n"
-              "• Навыки (при регистрации)\n\n"
-              "Данные используются только для корректной работы бота, сохранения истории чата и отображения профиля.\n"
-              "Мы не передаём данные третьим лицам.\n\n"
-              "Вы согласны на обработку этих данных?",
-        "kz": "Біз боттың жұмысы үшін минималды мәліметтерді жинаймыз:\n"
-              "• Telegram ID, аты, username\n"
-              "• Таңдалған тіл\n"
-              "• Дағдылар (тіркеу кезінде)\n\n"
-              "Мәліметтер тек боттың дұрыс жұмысы үшін қолданылады.\n"
-              "Біз мәліметтерді үшінші жаққа бермейміз.\n\n"
-              "Сіз бұл мәліметтерді өңдеуге келісесіз бе?"
+        "ru": "Мы собираем минимальные данные:\n• Telegram ID, имя, username\n• Язык\n• Навыки (при регистрации)\n\nДанные используются только для работы бота и отображения профиля.\nМы не передаём данные третьим лицам.\n\nВы согласны?",
+        "kz": "Біз минималды мәліметтерді жинаймыз:\n• Telegram ID, аты, username\n• Тіл\n• Дағдылар\n\nМәліметтер тек боттың жұмысы үшін.\nҮшінші жаққа бермейміз.\n\nКелісесіз бе?"
     },
     "agree_yes": {"ru": "✅ Согласен", "kz": "✅ Келісемін"},
     "agree_no": {"ru": "❌ Остаться гостем", "kz": "❌ Қонақ ретінде қалу"},
     "intro_guest": {"ru": "Я — Компас, твой координатор QAIYRYM. Выбери действие:", "kz": "Мен — Компас. Әрекетті таңдаңыз:"},
     "intro_member": {"ru": "Привет, участник! 🎉 Чем могу помочь?", "kz": "Сәлем, қатысушы! 🎉"},
     "about": {"ru": "💡 <b>О проекте QAIYRYM</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — волонтёрский проект в Актобе, помогаем семьям.\n\nВыбери подменю ↓", "kz": "💡 <b>QAIYRYM жобасы туралы</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — Ақтөбе еріктіліктің жобасы."},
+    "mission": {"ru": "🎯 <b>Миссия</b>\n\nСоздавать сообщество взаимопомощи, где каждый может помочь.\nМы хотим, чтобы помощь была быстрой, прозрачной и честной.", "kz": "🎯 <b>Миссия</b>\n\nӨзара көмектің қауымдастығын құру.\nКөмек жылдам, ашық және адал болуы керек."},
+    "creator": {"ru": "👤 <b>Создатель</b>\n\nПроект создан IT-HUB Актобе для помощи семьям.\nИдея родилась из реальной проблемы — волонтёры не знали, куда идти.", "kz": "👤 <b>Жасушы</b>\n\nЖоба IT-HUB Ақтөбе командасымен құрылды.\nИдея нақты мәселеден туындады."},
+    "partners": {"ru": "🤝 <b>Партнёры</b>\n\nШколы, НПО, волонтёры, спонсоры.\nМы открыты к сотрудничеству с каждым, кто хочет делать добро.", "kz": "🤝 <b>Серіктестер</b>\n\nМектептер, ҮЕҰ, еріктілер.\nБіз әрбір жақсылық жасағысы келетін адаммен ынтымақтасуға ашықпыз."},
+    "details": {"ru": "📋 <b>Подробности</b>\n\nПолная информация о проекте, команда, планы и как присоединиться.\nВсё собрано на удобном лендинге.", "kz": "📋 <b>Толық мәлімет</b>\n\nЖоба туралы толық ақпарат, команда, жоспарлар."},
+    "join_intro": {"ru": "🤝 <b>Как вступить?</b>\n\nДавайте зарегистрируемся!", "kz": "🤝 <b>Қалай қосылуға болады?</b>\n\nТіркелейік!"},
+    "ask_name": {"ru": "Введи своё имя:", "kz": "Өз атыңды енгіз:"},
+    "ask_age": {"ru": "Укажи свой возраст (цифрой):", "kz": "Жасыңды енгіз (цифрмен):"},
+    "ask_skill": {"ru": "Расскажи о своих навыках:", "kz": "Дағдыларың туралы айт:"},
+    "invalid_age": {"ru": "Введи возраст цифрой (например: 25)", "kz": "Жасыңды цифрмен енгіз:"},
+    "underage": {"ru": "⚠️ Регистрация доступна с 18 лет.", "kz": "⚠️ Тіркеу 18 жастан бастап."},
+    "registered": {"ru": "✅ Регистрация завершена! Добро пожаловать! 🎉", "kz": "✅ Тіркеу аяқталды! 🎉"},
+    "chat_mode_on": {"ru": "💬 <b>Режим общения</b>\n\nПиши мне — я отвечу! 👇", "kz": "💬 <b>Сөйлесу режимі</b>\n\nМаған жаз! 👇"},
+    "instruction": {"ru": "📘 <b>Инструкция</b>\n\n1️⃣ Как начать\n2️⃣ Безопасность\n3️⃣ Вопросы", "kz": "📘 <b>Нұсқаулық</b>\n\nhttps://example.com"},
     "menu_chat": {"ru": "💬 Общение", "kz": "💬 Сөйлесу"},
     "menu_about": {"ru": "💡 О проекте", "kz": "💡 Жоба туралы"},
     "menu_join": {"ru": "🤝 Как вступить?", "kz": "🤝 Қалай қосылуға болады?"},
@@ -261,7 +240,7 @@ TEXTS = {
 # ==================== FSM ====================
 class OnboardingState(StatesGroup):
     choose_language = State()
-    agreement = State()      # ← Новое состояние
+    agreement = State()
     guest_menu = State()
     member_menu = State()
     chat_mode = State()
@@ -349,9 +328,8 @@ async def process_agreement(callback: CallbackQuery, state: FSMContext) -> None:
             USERS_DATA[user_id] = {}
         USERS_DATA[user_id]["agreed"] = True
         save_users_db()
-        logger.info(f"[AGREEMENT] User {user_id} согласился")
         await callback.message.answer(
-            "Спасибо! Вы согласились на обработку данных. Теперь вы можете регистрироваться и использовать все функции.",
+            "Спасибо! Вы согласились. Теперь вы можете регистрироваться.",
             reply_markup=guest_menu_keyboard(lang)
         )
         await state.set_state(OnboardingState.guest_menu)
@@ -360,16 +338,12 @@ async def process_agreement(callback: CallbackQuery, state: FSMContext) -> None:
             USERS_DATA[user_id] = {}
         USERS_DATA[user_id]["agreed"] = False
         save_users_db()
-        logger.info(f"[AGREEMENT] User {user_id} остался гостем")
         await callback.message.answer(
-            "Вы остались гостем. Вы можете общаться с ИИ и смотреть информацию о проекте. Регистрация недоступна.",
+            "Вы остались гостем. Регистрация недоступна. Можно общаться с ИИ и смотреть проект.",
             reply_markup=guest_menu_keyboard(lang)
         )
         await state.set_state(OnboardingState.guest_menu)
     await callback.answer()
-
-# ==================== ОСТАЛЬНЫЕ ОБРАБОТЧИКИ (регистрация, чат и т.д.) ====================
-# (я оставил их как в твоей последней версии, они работают)
 
 @router.callback_query(F.data == "menu:about")
 async def menu_about(callback: CallbackQuery, state: FSMContext) -> None:
@@ -377,7 +351,7 @@ async def menu_about(callback: CallbackQuery, state: FSMContext) -> None:
     lang = data.get("lang") or DEFAULT_LANG
     logger.info(f"[MENU] User {callback.from_user.id} -> О проекте")
     await state.set_state(OnboardingState.about_submenu)
-    await callback.message.answer(
+    await callback.message.edit_text(
         t("about", lang),
         reply_markup=about_submenu_keyboard(lang)
     )
@@ -388,24 +362,29 @@ async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> N
     action = callback.data.split(":")[1]
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
+    
     text_map = {
         "mission": t("mission", lang),
         "creator": t("creator", lang),
         "partners": t("partners", lang),
         "details": t("details", lang),
     }
-    text = text_map.get(action, t("about", lang))
-    await callback.message.answer(
+    text = text_map.get(action) or t("about", lang)
+    
+    # ЗАЩИТА ОТ ПУСТОГО ТЕКСТА
+    if not text or text.strip() == "":
+        text = "Информация о проекте QAIYRYM"
+
+    await callback.message.edit_text(
         text,
-        reply_markup=about_submenu_keyboard(lang),
-        disable_notification=True
+        reply_markup=about_submenu_keyboard(lang)
     )
     await callback.answer()
 
 @router.callback_query(F.data == "menu:join")
 async def menu_join(callback: CallbackQuery, state: FSMContext) -> None:
     user_id = str(callback.from_user.id)
-    if USERS_DATA.get(user_id, {}).get("agreed", False) == False:
+    if not USERS_DATA.get(user_id, {}).get("agreed", False):
         await callback.message.answer("Вы остались гостем. Регистрация недоступна.")
         await callback.answer()
         return
@@ -413,10 +392,90 @@ async def menu_join(callback: CallbackQuery, state: FSMContext) -> None:
     lang = data.get("lang") or DEFAULT_LANG
     logger.info(f"[MENU] User {callback.from_user.id} -> Регистрация")
     await state.set_state(OnboardingState.registration_name)
-    await callback.message.answer(t("join_intro", lang) + "\n\n" + t("ask_name", lang))
+    text = t("join_intro", lang) + "\n\n" + t("ask_name", lang)
+    if not text.strip():
+        text = "Давайте зарегистрируемся!\n\nВведи своё имя:"
+    await callback.message.answer(text)
     await callback.answer()
 
-# ... (остальные обработчики reg_name, reg_age, reg_skill, chat_mode, menu_instruction, menu_profile и т.д. оставь как были в твоём последнем коде)
+# ==================== РЕГИСТРАЦИЯ И ЧАТ ====================
+@router.message(OnboardingState.registration_name, F.text)
+async def reg_name(message: Message, state: FSMContext) -> None:
+    name = message.text.strip()
+    await state.update_data(name=name)
+    data = await state.get_data()
+    lang = data.get("lang") or DEFAULT_LANG
+    await state.set_state(OnboardingState.registration_age)
+    await message.answer(t("ask_age", lang))
+
+@router.message(OnboardingState.registration_age, F.text)
+async def reg_age(message: Message, state: FSMContext) -> None:
+    text = message.text.strip()
+    data = await state.get_data()
+    lang = data.get("lang") or DEFAULT_LANG
+    if not text.isdigit():
+        await message.answer(t("invalid_age", lang))
+        return
+    age = int(text)
+    if age < 18:
+        await message.answer(t("underage", lang))
+        await state.clear()
+        return
+    await state.update_data(age=age)
+    await state.set_state(OnboardingState.registration_skill)
+    await message.answer(t("ask_skill", lang))
+
+@router.message(OnboardingState.registration_skill, F.text)
+async def reg_skill(message: Message, state: FSMContext) -> None:
+    skill = message.text.strip()
+    user_id = str(message.from_user.id)
+    data = await state.get_data()
+    lang = data.get("lang") or DEFAULT_LANG
+    name = data.get("name", "")
+    age = data.get("age", 0)
+    username = message.from_user.username or ""
+    success = save_user_registration(user_id, name, age, skill, lang, username)
+    if success:
+        await message.answer(t("registered", lang))
+        await state.clear()
+        await state.set_state(OnboardingState.member_menu)
+        await message.answer(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
+    else:
+        await message.answer("❌ Ошибка при сохранении.")
+        await state.clear()
+
+@router.message(OnboardingState.chat_mode, F.text)
+async def chat_mode_message(message: Message, state: FSMContext) -> None:
+    user_text = (message.text or "").strip()
+    if not user_text:
+        return
+    skip_words = ["ок", "да", "нет", "привет", "привет!", "ха", "оке", "хорошо", "спасибо", "пока"]
+    if user_text.lower() in skip_words:
+        return
+    user_id = str(message.from_user.id)
+    data = await state.get_data()
+    lang = data.get("lang") or DEFAULT_LANG
+    role = get_user_role(user_id)
+    if "chat_history" not in data:
+        data["chat_history"] = []
+    chat_history = data["chat_history"]
+    chat_history.append({"role": "user", "content": user_text})
+    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    system_instruction = get_chat_system_instruction(lang, role=role, chat_history_len=len(chat_history))
+    if KNOWLEDGE_MANIFEST:
+        system_instruction += f"\n\n[CONTEXT_DATA]\n{KNOWLEDGE_MANIFEST}\n[END_CONTEXT_DATA]"
+    formatted_messages = [f"{'🧑 ПОЛЬЗОВАТЕЛЬ' if msg['role'] == 'user' else '🤖 КОМПАС'}: {msg['content']}" for msg in chat_history]
+    full_prompt = "\n\n".join(formatted_messages)
+    try:
+        reply = await ask_gemini(full_prompt, system_instruction, user_lang=lang, skip_lang_instruction=True)
+        chat_history.append({"role": "model", "content": reply})
+        if len(chat_history) > 20:
+            chat_history = chat_history[-20:]
+        await state.update_data(chat_history=chat_history)
+        await message.answer(reply, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True)
+    except Exception as e:
+        logger.error(f"[CHAT ERROR] {e}")
+        await message.answer("Я немного завис, попробуй еще раз!")
 
 # ==================== MAIN ====================
 app = FastAPI(title="QAIYRYM Compass Bot", version="1.4")
