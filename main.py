@@ -203,18 +203,15 @@ def t(key: str, lang: str) -> str:
 
 TEXTS = {
     "choose_lang": {"ru": "Выберите язык:", "kz": "Тілді таңдаңыз:"},
-    "agreement_text": {
-        "ru": "Мы собираем минимальные данные для удобной работы:\n• Telegram ID, имя, username\n• Выбранный язык\n• Навыки (при регистрации)\n\nДанные используются только внутри бота и не передаются третьим лицам.\n\nВы согласны на обработку этих данных?",
-        "kz": "Біз ыңғайлы жұмыс үшін минималды мәліметтерді жинаймыз:\n• Telegram ID, аты, username\n• Таңдалған тіл\n• Дағдылар\n\nМәліметтер тек бот ішінде қолданылады.\n\nКелісесіз бе?"
-    },
+    "agreement_text": {"ru": "Мы собираем минимальные данные для работы бота:\n• Telegram ID, имя, username\n• Язык\n• Навыки (при регистрации)\n\nДанные используются только внутри бота и не передаются третьим лицам.\n\nВы согласны?", "kz": "Біз минималды мәліметтерді жинаймыз:\n• Telegram ID, аты, username\n• Тіл\n• Дағдылар\n\nМәліметтер тек бот ішінде.\nҮшінші жаққа бермейміз.\n\nКелісесіз бе?"},
     "agree_yes": {"ru": "✅ Согласен", "kz": "✅ Келісемін"},
     "agree_no": {"ru": "❌ Остаться гостем", "kz": "❌ Қонақ ретінде қалу"},
     "intro_guest": {"ru": "Я — Компас, твой координатор QAIYRYM. Выбери действие:", "kz": "Мен — Компас. Әрекетті таңдаңыз:"},
     "intro_member": {"ru": "Привет, участник! 🎉 Чем могу помочь?", "kz": "Сәлем, қатысушы! 🎉"},
     "about": {"ru": "💡 <b>О проекте QAIYRYM</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — волонтёрский проект в Актобе, помогаем семьям.\n\nВыбери подменю ↓", "kz": "💡 <b>QAIYRYM жобасы туралы</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — Ақтөбе еріктіліктің жобасы."},
     "mission": {"ru": "🎯 <b>Миссия</b>\n\nСоздавать сообщество взаимопомощи, где каждый может помочь.\nМы хотим, чтобы помощь была быстрой, прозрачной и честной.\nВместе мы делаем Актобе добрее.", "kz": "🎯 <b>Миссия</b>\n\nӨзара көмектің қауымдастығын құру.\nКөмек жылдам, ашық және адал болуы керек.\nБіз бірге Ақтөбені мейірімді етеміз."},
-    "creator": {"ru": "👤 <b>Создатель</b>\n\nПроект создан IT-HUB Актобе для помощи семьям.\nИдея родилась из реальной проблемы — волонтёры не знали, куда идти и как помогать.\nЯ решил это исправить.", "kz": "👤 <b>Жасушы</b>\n\nЖоба IT-HUB Ақтөбе командасымен құрылды.\nИдея нақты мәселеден туындады — еріктілер қайда барарын білмеді.\nМен оны түзетуді шештім."},
-    "partners": {"ru": "🤝 <b>Партнёры</b>\n\nШколы, НПО, волонтёры, спонсоры.\nМы открыты к сотрудничеству с каждым, кто хочет делать добро.\nВместе мы можем гораздо больше.", "kz": "🤝 <b>Серіктестер</b>\n\nМектептер, ҮЕҰ, еріктілер.\nБіз әрбір жақсылық жасағысы келетін адаммен ынтымақтасуға ашықпыз."},
+    "creator": {"ru": "👤 <b>Создатель</b>\n\nПроект создан IT-HUB Актобе для помощи семьям.\nИдея родилась из реальной проблемы — волонтёры не знали, куда идти.", "kz": "👤 <b>Жасушы</b>\n\nЖоба IT-HUB Ақтөбе командасымен құрылды.\nИдея нақты мәселеден туындады."},
+    "partners": {"ru": "🤝 <b>Партнёры</b>\n\nШколы, НПО, волонтёры, спонсоры.\nМы открыты к сотрудничеству с каждым, кто хочет делать добро.", "kz": "🤝 <b>Серіктестер</b>\n\nМектептер, ҮЕҰ, еріктілер.\nБіз әрбір жақсылық жасағысы келетін адаммен ынтымақтасуға ашықпыз."},
     "details": {"ru": "📋 <b>Подробности</b>\n\nПолная информация о проекте, команда, планы и как присоединиться.\nВсё собрано на удобном лендинге.", "kz": "📋 <b>Толық мәлімет</b>\n\nЖоба туралы толық ақпарат, команда, жоспарлар."},
     "join_intro": {"ru": "🤝 <b>Как вступить?</b>\n\nДавайте зарегистрируемся!", "kz": "🤝 <b>Қалай қосылуға болады?</b>\n\nТіркелейік!"},
     "ask_name": {"ru": "Введи своё имя:", "kz": "Өз атыңды енгіз:"},
@@ -308,10 +305,7 @@ async def process_lang(callback: CallbackQuery, state: FSMContext) -> None:
     logger.info(f"[LANG] User {user_id} выбрал {lang}")
     
     await state.set_state(OnboardingState.agreement)
-    await callback.message.answer(
-        t("agreement_text", lang),
-        reply_markup=agreement_keyboard(lang)
-    )
+    await callback.message.answer(t("agreement_text", lang), reply_markup=agreement_keyboard(lang))
     await callback.answer()
 
 @router.callback_query(F.data.startswith("agree:"))
@@ -326,21 +320,24 @@ async def process_agreement(callback: CallbackQuery, state: FSMContext) -> None:
             USERS_DATA[user_id] = {}
         USERS_DATA[user_id]["agreed"] = True
         save_users_db()
-        await callback.message.answer(
-            "Спасибо! Вы согласились. Теперь доступны все функции.",
-            reply_markup=guest_menu_keyboard(lang)
-        )
+        await callback.message.answer("Спасибо! Вы согласились. Теперь доступны все функции.", reply_markup=guest_menu_keyboard(lang))
         await state.set_state(OnboardingState.guest_menu)
     else:
         if user_id not in USERS_DATA:
             USERS_DATA[user_id] = {}
         USERS_DATA[user_id]["agreed"] = False
         save_users_db()
-        await callback.message.answer(
-            "Вы остались гостем.\nРегистрация недоступна.\nМожно общаться с ИИ и смотреть проект.",
-            reply_markup=guest_menu_keyboard(lang)
-        )
+        await callback.message.answer("Вы остались гостем.\nРегистрация недоступна.\nМожно общаться с ИИ и смотреть проект.", reply_markup=guest_menu_keyboard(lang))
         await state.set_state(OnboardingState.guest_menu)
+    await callback.answer()
+
+@router.callback_query(F.data == "menu:chat")
+async def menu_chat(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    lang = data.get("lang") or DEFAULT_LANG
+    logger.info(f"[MENU] User {callback.from_user.id} -> Общение с ИИ")
+    await state.set_state(OnboardingState.chat_mode)
+    await callback.message.answer(t("chat_mode_on", lang))
     await callback.answer()
 
 @router.callback_query(F.data == "menu:about")
@@ -349,10 +346,7 @@ async def menu_about(callback: CallbackQuery, state: FSMContext) -> None:
     lang = data.get("lang") or DEFAULT_LANG
     logger.info(f"[MENU] User {callback.from_user.id} -> О проекте")
     await state.set_state(OnboardingState.about_submenu)
-    await callback.message.edit_text(
-        t("about", lang),
-        reply_markup=about_submenu_keyboard(lang)
-    )
+    await callback.message.edit_text(t("about", lang), reply_markup=about_submenu_keyboard(lang))
     await callback.answer()
 
 @router.callback_query(F.data.startswith("about:"))
@@ -367,11 +361,23 @@ async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> N
         "details": t("details", lang),
     }
     text = text_map.get(action) or t("about", lang)
-    
-    await callback.message.edit_text(
-        text,
-        reply_markup=about_submenu_keyboard(lang)
-    )
+    if not text.strip():
+        text = "Информация о проекте QAIYRYM"
+    await callback.message.edit_text(text, reply_markup=about_submenu_keyboard(lang))
+    await callback.answer()
+
+@router.callback_query(F.data == "menu:back_to_main")
+async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
+    data = await state.get_data()
+    lang = data.get("lang") or DEFAULT_LANG
+    user_id = str(callback.from_user.id)
+    role = get_user_role(user_id)
+    if role == "MEMBER":
+        await state.set_state(OnboardingState.member_menu)
+        await callback.message.edit_text(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
+    else:
+        await state.set_state(OnboardingState.guest_menu)
+        await callback.message.edit_text(t("intro_guest", lang), reply_markup=guest_menu_keyboard(lang))
     await callback.answer()
 
 @router.callback_query(F.data == "menu:join")
@@ -388,6 +394,7 @@ async def menu_join(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(t("join_intro", lang) + "\n\n" + t("ask_name", lang))
     await callback.answer()
 
+# ==================== РЕГИСТРАЦИЯ ====================
 @router.message(OnboardingState.registration_name, F.text)
 async def reg_name(message: Message, state: FSMContext) -> None:
     name = message.text.strip()
@@ -433,6 +440,7 @@ async def reg_skill(message: Message, state: FSMContext) -> None:
         await message.answer("❌ Ошибка при сохранении. Попробуйте позже.")
         await state.clear()
 
+# ==================== ЧАТ С ИИ ====================
 @router.message(OnboardingState.chat_mode, F.text)
 async def chat_mode_message(message: Message, state: FSMContext) -> None:
     user_text = (message.text or "").strip()
@@ -470,20 +478,6 @@ async def use_menu_buttons(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     lang = data.get("lang") or DEFAULT_LANG
     await message.answer(t("use_menu_buttons", lang), reply_markup=guest_menu_keyboard(lang) if get_user_role(str(message.from_user.id)) == "GUEST" else member_menu_keyboard(lang))
-
-@router.callback_query(F.data == "menu:back_to_main")
-async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    user_id = str(callback.from_user.id)
-    role = get_user_role(user_id)
-    if role == "MEMBER":
-        await state.set_state(OnboardingState.member_menu)
-        await callback.message.edit_text(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
-    else:
-        await state.set_state(OnboardingState.guest_menu)
-        await callback.message.edit_text(t("intro_guest", lang), reply_markup=guest_menu_keyboard(lang))
-    await callback.answer()
 
 @router.message(Command("broadcast"))
 async def cmd_broadcast(message: Message, state: FSMContext, bot: Bot) -> None:
