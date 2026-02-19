@@ -209,7 +209,7 @@ TEXTS = {
     "intro_guest": {"ru": "Я — Компас, твой координатор QAIYRYM. Выбери действие:", "kz": "Мен — Компас. Әрекетті таңдаңыз:"},
     "intro_member": {"ru": "Привет, участник! 🎉 Чем могу помочь?", "kz": "Сәлем, қатысушы! 🎉"},
     "about": {"ru": "💡 <b>О проекте QAIYRYM</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — волонтёрский проект в Актобе, помогаем семьям.\n\nВыбери подменю ↓", "kz": "💡 <b>QAIYRYM жобасы туралы</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — Ақтөбе еріктіліктің жобасы."},
-    "mission": {"ru": "🎯 <b>Миссия</b>\n\nСоздавать сообщество взаимопомощи, где каждый может помочь.\nМы хотим, чтобы помощь была быстрой, прозрачной и честной.\nВместе мы делаем Актобе добрее.", "kz": "🎯 <b>Миссия</b>\n\nӨзара көмектің қауымдастығын құру.\nКөмек жылдам, ашық және адал болуы керек.\nБіз бірге Ақтөбені мейірімді етеміз."},
+    "mission": {"ru": "🎯 <b>Миссия</b>\n\nСоздавать сообщество взаимопомощи, где каждый может помочь.\nМы хотим, чтобы помощь была быстрой, прозрачной и честной.", "kz": "🎯 <b>Миссия</b>\n\nӨзара көмектің қауымдастығын құру.\nКөмек жылдам, ашық және адал болуы керек."},
     "creator": {"ru": "👤 <b>Создатель</b>\n\nПроект создан IT-HUB Актобе для помощи семьям.\nИдея родилась из реальной проблемы — волонтёры не знали, куда идти.", "kz": "👤 <b>Жасушы</b>\n\nЖоба IT-HUB Ақтөбе командасымен құрылды.\nИдея нақты мәселеден туындады."},
     "partners": {"ru": "🤝 <b>Партнёры</b>\n\nШколы, НПО, волонтёры, спонсоры.\nМы открыты к сотрудничеству с каждым, кто хочет делать добро.", "kz": "🤝 <b>Серіктестер</b>\n\nМектептер, ҮЕҰ, еріктілер.\nБіз әрбір жақсылық жасағысы келетін адаммен ынтымақтасуға ашықпыз."},
     "details": {"ru": "📋 <b>Подробности</b>\n\nПолная информация о проекте, команда, планы и как присоединиться.\nВсё собрано на удобном лендинге.", "kz": "📋 <b>Толық мәлімет</b>\n\nЖоба туралы толық ақпарат, команда, жоспарлар."},
@@ -440,7 +440,13 @@ async def reg_skill(message: Message, state: FSMContext) -> None:
         await message.answer("❌ Ошибка при сохранении. Попробуйте позже.")
         await state.clear()
 
-# ==================== ЧАТ С ИИ ====================
+# ==================== ЧАТ С ИИ (ИСПРАВЛЕНО) ====================
+def escape_markdown_v2(text: str) -> str:
+    escape_chars = '_*[]()~`>#+-=|{}.!'
+    for char in escape_chars:
+        text = text.replace(char, '\\' + char)
+    return text
+
 @router.message(OnboardingState.chat_mode, F.text)
 async def chat_mode_message(message: Message, state: FSMContext) -> None:
     user_text = (message.text or "").strip()
@@ -467,49 +473,12 @@ async def chat_mode_message(message: Message, state: FSMContext) -> None:
         if len(chat_history) > 20:
             chat_history = chat_history[-20:]
         await state.update_data(chat_history=chat_history)
-        await message.answer(reply, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True)
+        # ЭКРАНИРОВАНИЕ ДЛЯ MARKDOWN V2
+        safe_reply = escape_markdown_v2(reply)
+        await message.answer(safe_reply, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"[CHAT ERROR] {e}")
         await message.answer("Я немного завис, попробуй еще раз!")
-
-@router.message(OnboardingState.guest_menu, F.text)
-@router.message(OnboardingState.member_menu, F.text)
-async def use_menu_buttons(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    await message.answer(t("use_menu_buttons", lang), reply_markup=guest_menu_keyboard(lang) if get_user_role(str(message.from_user.id)) == "GUEST" else member_menu_keyboard(lang))
-
-@router.message(Command("broadcast"))
-async def cmd_broadcast(message: Message, state: FSMContext, bot: Bot) -> None:
-    user_id = str(message.from_user.id)
-    if not ADMIN_ID or user_id != ADMIN_ID:
-        await message.answer("❌ Нет доступа.")
-        return
-    broadcast_text = message.text.replace("/broadcast", "").strip()
-    if not broadcast_text:
-        await message.answer("❌ Укажите текст: /broadcast <текст>")
-        return
-    logger.info(f"[BROADCAST] Администратор {user_id} отправляет рассылку")
-    member_ids = get_all_member_ids()
-    if not member_ids:
-        await message.answer("❌ Нет участников.")
-        return
-    success_count = 0
-    error_count = 0
-    for member_id in member_ids:
-        try:
-            await bot.send_message(chat_id=int(member_id), text=broadcast_text)
-            success_count += 1
-        except Exception as e:
-            error_count += 1
-            logger.error(f"[BROADCAST ERROR] {member_id}: {e}")
-    result_text = f"📤 <b>Рассылка завершена!</b>\n\n✅ Успешно: {success_count}\n❌ Ошибок: {error_count}"
-    await message.answer(result_text)
-
-@router.message(F.text, StateFilter(None))
-async def handle_unknown(message: Message, state: FSMContext) -> None:
-    await state.set_state(OnboardingState.choose_language)
-    await message.answer(t("choose_lang", DEFAULT_LANG), reply_markup=lang_keyboard())
 
 # ==================== MAIN ====================
 app = FastAPI(title="QAIYRYM Compass Bot", version="1.4")
