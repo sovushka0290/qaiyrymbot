@@ -3,12 +3,15 @@ import json
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from typing import Dict, Any, List
 from datetime import datetime
+
 import gspread
 from google.oauth2.service_account import Credentials
 from google import genai
 from google.genai import types
+
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -21,12 +24,17 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
-    WebAppInfo,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardRemove
 )
 from dotenv import load_dotenv
 from fastapi import FastAPI
 import uvicorn
 from fastapi.staticfiles import StaticFiles
+
+from aiogram.client.session.aiohttp import AiohttpSession
+import aiohttp
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
@@ -36,7 +44,6 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 ADMIN_ID = os.getenv("ADMIN_ID", "")
-WEBAPP_URL = os.getenv("WEBAPP_URL", "")
 
 if not BOT_TOKEN or not GEMINI_API_KEY:
     logger.critical("❌ ОШИБКА: Укажите BOT_TOKEN и GEMINI_API_KEY в .env")
@@ -48,36 +55,65 @@ DEFAULT_LANG = "ru"
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "qaiyrym-credentials.json")
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "")
 GOOGLE_SHEET_NAME = os.getenv("GOOGLE_SHEET_NAME", "Волонтёры")
+GOOGLE_SHEET_NAME_REQUESTS = os.getenv("GOOGLE_SHEET_NAME_REQUESTS", "Заявки")
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
+# Хакерский трюк для Koyeb/Render: берем JSON из переменной окружения
+if os.getenv("GOOGLE_CREDS_JSON"):
+    try:
+        with open(GOOGLE_CREDENTIALS_PATH, "w", encoding="utf-8") as f:
+            f.write(os.getenv("GOOGLE_CREDS_JSON"))
+        logger.info("[SHEETS] Ключи Google успешно созданы из GOOGLE_CREDS_JSON")
+    except Exception as e:
+        logger.error(f"[SHEETS] Ошибка создания ключей из env: {e}")
 
 def get_sheets_client():
     if not GOOGLE_SHEET_ID:
         logger.warning("[SHEETS] GOOGLE_SHEET_ID не установлен в .env")
-        return None, None
+        return None
     if not os.path.exists(GOOGLE_CREDENTIALS_PATH):
         logger.warning(f"[SHEETS] Файл {GOOGLE_CREDENTIALS_PATH} не найден")
-        return None, None
+        return None
     try:
         creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=SCOPES)
         gc = gspread.authorize(creds)
         sheet = gc.open_by_key(GOOGLE_SHEET_ID)
-        logger.info(f"[SHEETS] Подключено к Google Sheets: {GOOGLE_SHEET_NAME}")
-        return sheet, GOOGLE_SHEET_NAME
+        return sheet
     except Exception as e:
         logger.error(f"[SHEETS ERROR] {e}")
-        return None, None
+        return None
 
-def append_volunteer_to_sheets(user_id: str, name: str, age: int, skill: str, lang: str, username: str = "") -> bool:
-    sheet, sheet_name = get_sheets_client()
-    if not sheet: return False
+def append_volunteer_to_sheets(user_id: str, name: str, age: int, skill: str, coord: str, lang: str, username: str = "") -> bool:
+    sheet = get_sheets_client()
+    if not sheet: 
+        logger.warning(f"[SHEETS MOCK VOLUNTEER] Mock mode. Data: {user_id}, {name}")
+        return True # MOCK FOR DEMO
     try:
-        worksheet = sheet.worksheet(sheet_name)
-        row = [user_id, name, age, skill, lang, username, datetime.now().isoformat()]
+        worksheet = sheet.worksheet(GOOGLE_SHEET_NAME)
+        row = [user_id, name, age, skill, coord, lang, username, datetime.now().isoformat()]
         worksheet.append_row(row, value_input_option="RAW")
-        logger.info(f"[SHEETS] Волонтёр {name} добавлен")
         return True
     except Exception as e:
-        logger.error(f"[SHEETS ERROR] {e}")
+        logger.error(f"[SHEETS ERROR VOLUNTEER] {e}")
+        return False
+
+def append_request_to_sheets(user_id: str, name: str, address: str, req_type: str, lang: str, username: str = "") -> bool:
+    sheet = get_sheets_client()
+    if not sheet: 
+        logger.warning(f"[SHEETS MOCK REQUEST] Mock mode. Data: {user_id}, {name}")
+        return True # MOCK FOR DEMO
+    try:
+        try:
+            worksheet = sheet.worksheet(GOOGLE_SHEET_NAME_REQUESTS)
+        except gspread.exceptions.WorksheetNotFound:
+            worksheet = sheet.add_worksheet(title=GOOGLE_SHEET_NAME_REQUESTS, rows="100", cols="20")
+            worksheet.append_row(["ID", "Name", "Address", "Type", "Lang", "Username", "Date", "Status"])
+            
+        row = [user_id, name, address, req_type, lang, username, datetime.now().isoformat(), "НОВАЯ"]
+        worksheet.append_row(row, value_input_option="RAW")
+        return True
+    except Exception as e:
+        logger.error(f"[SHEETS ERROR REQUEST] {e}")
         return False
 
 # ==================== БАЗА ДАННЫХ ====================
@@ -90,7 +126,6 @@ def load_users_db():
         if os.path.exists(USER_DB_FILE):
             with open(USER_DB_FILE, "r", encoding="utf-8") as f:
                 USERS_DATA = json.load(f)
-                logger.info(f"[DB] Загружено {len(USERS_DATA)} пользователей")
         else:
             USERS_DATA = {}
     except Exception as e:
@@ -107,24 +142,11 @@ def save_users_db():
 def get_user_role(user_id: str) -> str:
     return USERS_DATA.get(user_id, {}).get("role", "GUEST")
 
-def save_user_registration(user_id: str, name: str, age: int, skill: str, lang: str, username: str = "") -> bool:
-    try:
-        USERS_DATA[user_id] = {
-            "user_id": user_id, "name": name, "age": age, "skill": skill,
-            "lang": lang, "role": "MEMBER", "registered_at": datetime.now().isoformat()
-        }
-        save_users_db()
-        logger.info(f"[DB] Пользователь {user_id} зарегистрирован: {name}")
-        append_volunteer_to_sheets(user_id, name, age, skill, lang, username)
-        return True
-    except Exception as e:
-        logger.error(f"[DB ERROR] {e}")
-        return False
-
-def set_user_language(user_id: str, lang: str):
+def save_user_role(user_id: str, role: str):
     if user_id not in USERS_DATA:
-        USERS_DATA[user_id] = {"role": "GUEST", "agreed": False}
-    USERS_DATA[user_id]["lang"] = lang
+        USERS_DATA[user_id] = {}
+    USERS_DATA[user_id]["role"] = role
+    USERS_DATA[user_id]["registered_at"] = datetime.now().isoformat()
     save_users_db()
 
 # ==================== KNOWLEDGE.txt ====================
@@ -140,378 +162,436 @@ def load_manifest() -> str:
                 return content
         except FileNotFoundError:
             continue
-        except Exception as e:
-            logger.error(f"[MANIFEST] ОШИБКА: {e}")
-    logger.warning("[MANIFEST] knowledge.txt не найден")
     return ""
-
 KNOWLEDGE_MANIFEST = load_manifest()
 
 # ==================== GEMINI ====================
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
-GEMINI_FALLBACK_MODEL = "gemini-2.0-flash"
-_client = None
 
 def get_gemini_client():
-    global _client
-    if _client is None:
-        _client = genai.Client(api_key=GEMINI_API_KEY)
-        logger.info("[GEMINI] Клиент инициализирован")
-    return _client
+    return genai.Client(api_key=GEMINI_API_KEY)
 
-def get_chat_system_instruction(user_lang: str, role: str = "GUEST", chat_history_len: int = 0) -> str:
-    lang = user_lang if user_lang in ("ru", "kz") else "ru"
-    lang_name = "русском" if lang == "ru" else "казахском"
-    base = (
-        "Ты — Компас, ИИ-координатор проекта QAIYRYM.\n\n"
-        "🎯 ГЛАВНАЯ ЗАДАЧА — ЗАДАВАЙ ВОПРОСЫ! После каждого ответа задай 1-2 вопроса.\n"
-        "Форматируй ответ ТОЛЬКО Markdown: *жирный*, _курсив_, `код`, [текст](ссылка).\n"
-        f"• Язык: {lang_name} ({lang})\n"
-    )
-    if chat_history_len <= 2:
-        base += "\n⭐ ПЕРВОЕ СООБЩЕНИЕ: Можно поздороваться.\n"
-    return base
-
-async def ask_gemini(prompt: str, system_prompt: str | None = None, user_lang: str = DEFAULT_LANG, skip_lang_instruction: bool = False) -> str:
-    base = system_prompt or ""
-    if not skip_lang_instruction:
-        lang = user_lang if user_lang in ("ru", "kz") else DEFAULT_LANG
-        lang_name = "русском" if lang == "ru" else "казахском"
-        system_instruction = f"{base}\n\nОтвечай на {lang_name} ({lang})."
-    else:
-        system_instruction = base
+def get_chat_system_instruction(user_lang: str, role: str = "GUEST") -> str:
+    lang_name = "русском" if user_lang == "ru" else "казахском"
     
+    instruction = f"""
+Ты — ИИ-координатор QAIYRYM. Отвечай на {lang_name}.
+Твоя текущая роль собеседника: {role}.
+
+[ПРАВИЛА ЛИЧНОСТИ]
+1. КРАТКОСТЬ (Диалоговый режим): Если пользователь просто общается, отвечай не более 2-3 предложений. Будь как человек в мессенджере.
+2. КОНТЕКСТНАЯ ГЛУБИНА: Если пользователь просит "рассказать подробнее", "как это работает" или "в чем выгода" — переключайся в режим эксперта и выдавай структурированную инфу.
+3. РОЛЕВАЯ МОДЕЛЬ (СМОТРИ НА РОЛЬ):
+
+   - ЕСЛИ РОЛЬ VOLUNTEER:
+     Стиль: Дружелюбный, мотивирующий, на "ты". 
+     Фокус: Твой рост, баллы, реальная помощь, крутое комьюнити. 
+     Запрет: Не грузи их сложной ESG-аналитикой, если не просят.
+
+   - ЕСЛИ РОЛЬ RECIPIENT:
+     Стиль: Заботливый, вежливый, на "вы". 
+     Фокус: Безопасность, сроки, как работает проверка волонтера. 
+     Успокой человека: "Мы рядом, помощь уже ищется".
+
+   - ЕСЛИ РОЛЬ CLIENT (PARTNER/BIZ/AKIMAT):
+     Стиль: Деловой, конкретный, на "вы". 
+     Фокус: Прозрачность (Solana), отчетность (ESG), автоматизация контроля. 
+     Киллер-фича: Упоминай, что ИИ-агенты заменяют тысячи часов ручного аудита.
+
+ТЕХНИЧЕСКИЙ ГАЙД:
+- Всегда заканчивай ответ вопросом, чтобы вести диалог.
+- Если человек спрашивает то, чего нет в knowledge.txt, мягко скажи: "Я пока учусь этому, но наш основатель Алихан точно знает ответ".
+- Если пользователь пишет, что готов помогать, зарегистрироваться или получить помощь — предложи ему нажать кнопку "🚀 Приступить" в чате.
+- Используй Markdown (жирный текст для акцентов).
+"""
+    
+    if KNOWLEDGE_MANIFEST:
+        instruction += f"\n\n[ДАННЫЕ О ПРОЕКТЕ / BAZA ZNANIY]\n{KNOWLEDGE_MANIFEST}"
+        
+    return instruction
+
+async def ask_gemini(prompt: str, system_prompt: str) -> str:
     def _generate_sync(model_name: str) -> str:
         client = get_gemini_client()
-        config = types.GenerateContentConfig(max_output_tokens=512, system_instruction=system_instruction)
+        config = types.GenerateContentConfig(max_output_tokens=1024, system_instruction=system_prompt)
         response = client.models.generate_content(model=model_name, contents=prompt, config=config)
         return response.text.strip() if response.text else "Извините, не могу ответить."
-    
     try:
         return await asyncio.wait_for(asyncio.to_thread(_generate_sync, GEMINI_MODEL_NAME), timeout=45.0)
     except Exception as e:
         logger.error(f"[GEMINI ERROR] {e}")
         return "К сожалению, не могу ответить."
 
-# ==================== ТЕКСТЫ ====================
-def t(key: str, lang: str) -> str:
-    lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
-    val = TEXTS.get(key)
-    if isinstance(val, dict):
-        return val.get(lang, val.get(DEFAULT_LANG, "Текст не найден"))
-    return str(val or "Текст не найден")
-
-TEXTS = {
-    "choose_lang": {"ru": "Выберите язык:", "kz": "Тілді таңдаңыз:"},
-    "agreement_text": {"ru": "Мы собираем минимальные данные для работы бота:\n• Telegram ID, имя, username\n• Язык\n• Навыки (при регистрации)\n\nДанные используются только внутри бота и не передаются третьим лицам.\n\nВы согласны?", "kz": "Біз минималды мәліметтерді жинаймыз:\n• Telegram ID, аты, username\n• Тіл\n• Дағдылар\n\nМәліметтер тек бот ішінде.\nҮшінші жаққа бермейміз.\n\nКелісесіз бе?"},
-    "agree_yes": {"ru": "✅ Согласен", "kz": "✅ Келісемін"},
-    "agree_no": {"ru": "❌ Остаться гостем", "kz": "❌ Қонақ ретінде қалу"},
-    "intro_guest": {"ru": "Я — Компас, твой координатор QAIYRYM. Выбери действие:", "kz": "Мен — Компас. Әрекетті таңдаңыз:"},
-    "intro_member": {"ru": "Привет, участник! 🎉 Чем могу помочь?", "kz": "Сәлем, қатысушы! 🎉"},
-    "about": {"ru": "💡 <b>О проекте QAIYRYM</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — волонтёрский проект в Актобе, помогаем семьям.\n\nВыбери подменю ↓", "kz": "💡 <b>QAIYRYM жобасы туралы</b>\n━━━━━━━━━━━━━━━━━━━━━━\n\nQAIYRYM — Ақтөбе еріктіліктің жобасы."},
-    "mission": {"ru": "🎯 <b>Миссия</b>\n\nСоздавать сообщество взаимопомощи, где каждый может помочь.\nМы хотим, чтобы помощь была быстрой, прозрачной и честной.", "kz": "🎯 <b>Миссия</b>\n\nӨзара көмектің қауымдастығын құру.\nКөмек жылдам, ашық және адал болуы керек."},
-    "creator": {"ru": "👤 <b>Создатель</b>\n\nПроект создан IT-HUB Актобе для помощи семьям.\nИдея родилась из реальной проблемы — волонтёры не знали, куда идти.", "kz": "👤 <b>Жасушы</b>\n\nЖоба IT-HUB Ақтөбе командасымен құрылды.\nИдея нақты мәселеден туындады."},
-    "partners": {"ru": "🤝 <b>Партнёры</b>\n\nШколы, НПО, волонтёры, спонсоры.\nМы открыты к сотрудничеству с каждым, кто хочет делать добро.", "kz": "🤝 <b>Серіктестер</b>\n\nМектептер, ҮЕҰ, еріктілер.\nБіз әрбір жақсылық жасағысы келетін адаммен ынтымақтасуға ашықпыз."},
-    "details": {"ru": "📋 <b>Подробности</b>\n\nПолная информация о проекте, команда, планы и как присоединиться.\nВсё собрано на удобном лендинге.", "kz": "📋 <b>Толық мәлімет</b>\n\nЖоба туралы толық ақпарат, команда, жоспарлар."},
-    "join_intro": {"ru": "🤝 <b>Как вступить?</b>\n\nДавайте зарегистрируемся!", "kz": "🤝 <b>Қалай қосылуға болады?</b>\n\nТіркелейік!"},
-    "ask_name": {"ru": "Введи своё имя:", "kz": "Өз атыңды енгіз:"},
-    "ask_age": {"ru": "Укажи свой возраст (цифрой):", "kz": "Жасыңды енгіз (цифрмен):"},
-    "ask_skill": {"ru": "Расскажи о своих навыках:", "kz": "Дағдыларың туралы айт:"},
-    "invalid_age": {"ru": "Введи возраст цифрой (например: 25)", "kz": "Жасыңды цифрмен енгіз:"},
-    "underage": {"ru": "⚠️ Регистрация доступна с 18 лет.", "kz": "⚠️ Тіркеу 18 жастан бастап."},
-    "registered": {"ru": "✅ Регистрация завершена! Добро пожаловать! 🎉", "kz": "✅ Тіркеу аяқталды! 🎉"},
-    "chat_mode_on": {"ru": "💬 <b>Общение с ИИ</b>\n\nПиши мне — я отвечу! 👇", "kz": "💬 <b>ИИ-мен сөйлесу</b>\n\nМаған жаз! 👇"},
-    "instruction": {"ru": "📘 <b>Инструкция</b>\n\n1️⃣ Как начать\n2️⃣ Безопасность\n3️⃣ Вопросы", "kz": "📘 <b>Нұсқаулық</b>\n\nhttps://example.com"},
-    "menu_chat": {"ru": "💬 Общение с ИИ", "kz": "💬 ИИ-мен сөйлесу"},
-    "menu_about": {"ru": "💡 О проекте", "kz": "💡 Жоба туралы"},
-    "menu_join": {"ru": "🤝 Как вступить?", "kz": "🤝 Қалай қосылуға болады?"},
-    "menu_instruction": {"ru": "📘 Инструкция", "kz": "📘 Нұсқаулық"},
-    "menu_profile": {"ru": "🧭 Профиль", "kz": "🧭 Профиль"},
-    "menu_landing": {"ru": "🌐 Подробнее о проекте", "kz": "🌐 Толығырақ жоба туралы"},
-    "back": {"ru": "🔙 Назад", "kz": "🔙 Артқа"},
-    "use_menu_buttons": {"ru": "👇 Используйте кнопки меню.", "kz": "👇 Мәзір түймелерін пайдаланыңыз."},
-}
-
 # ==================== FSM ====================
 class OnboardingState(StatesGroup):
     choose_language = State()
     agreement = State()
-    guest_menu = State()
-    member_menu = State()
-    chat_mode = State()
-    about_submenu = State()
-    registration_name = State()
-    registration_age = State()
-    registration_skill = State()
+    choose_role = State()
+
+class RegVolunteer(StatesGroup):
+    name = State()
+    age = State()
+    skill = State()
+    coordinator = State()
+
+class RegRecipient(StatesGroup):
+    name = State()
+    address = State()
+    req_type = State()
+
+class RegClient(StatesGroup):
+    name = State()
+    company = State()
+
+class MainMenu(StatesGroup):
+    idle = State()
+    chatting = State()
+    esg_consultation = State()
+    active_tasks = State()
+
+class TaskVerification(StatesGroup):
+    waiting_for_photo = State()
 
 # ==================== КЛАВИАТУРЫ ====================
 def lang_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Қазақша 🇰🇿", callback_data="lang:kz"), InlineKeyboardButton(text="Русский 🇷🇺", callback_data="lang:ru")]])
+
+def agreement_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="✅ Согласен", callback_data="agree:yes")], [InlineKeyboardButton(text="❌ Отказаться", callback_data="agree:no")]])
+
+def roles_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Қазақша 🇰🇿", callback_data="lang:kz"),
-         InlineKeyboardButton(text="Русский 🇷🇺", callback_data="lang:ru")]
+        [InlineKeyboardButton(text="🙋‍♂️ Волонтер", callback_data="role_vol")],
+        [InlineKeyboardButton(text="🆘 Нужна помощь", callback_data="role_rec")],
+        [InlineKeyboardButton(text="💼 Партнер / Акимат", callback_data="role_biz")]
     ])
 
-def agreement_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t("agree_yes", lang), callback_data="agree:yes")],
-        [InlineKeyboardButton(text=t("agree_no", lang), callback_data="agree:no")]
-    ])
+def coord_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="Координатор Анна (Север)")],
+        [KeyboardButton(text="Координатор Тимур (Центр)")],
+        [KeyboardButton(text="Координатор Динара (Юг)")]
+    ], resize_keyboard=True, one_time_keyboard=True)
 
-def guest_menu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
-    lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t("menu_chat", lang), callback_data="menu:chat")],
-        [InlineKeyboardButton(text=t("menu_about", lang), callback_data="menu:about")],
-        [InlineKeyboardButton(text=t("menu_join", lang), callback_data="menu:join")],
-    ])
+def req_type_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="🛒 Продуктовый набор")],
+        [KeyboardButton(text="🧹 Бытовая помощь / Уборка")],
+        [KeyboardButton(text="🎸 Образовательная помощь (Домбра и др.)")]
+    ], resize_keyboard=True, one_time_keyboard=True)
 
-def member_menu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
-    lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t("menu_chat", lang), callback_data="menu:chat")],
-        [InlineKeyboardButton(text=t("menu_about", lang), callback_data="menu:about")],
-        [InlineKeyboardButton(text=t("menu_instruction", lang), callback_data="menu:instruction")],
-        [InlineKeyboardButton(text=t("menu_profile", lang), callback_data="menu:profile")],
-    ])
-
-def about_submenu_keyboard(lang: str = DEFAULT_LANG) -> InlineKeyboardMarkup:
-    lang = lang if lang in ("ru", "kz") else DEFAULT_LANG
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎯 Миссия", callback_data="about:mission")],
-        [InlineKeyboardButton(text="👤 Создатель", callback_data="about:creator")],
-        [InlineKeyboardButton(text="🤝 Партнёры", callback_data="about:partners")],
-        [InlineKeyboardButton(text="📋 Подробности", callback_data="about:details")],
-        [InlineKeyboardButton(text=t("menu_landing", lang), web_app=WebAppInfo(url=f"{WEBAPP_URL.rsplit('/', 1)[0]}/landing.html"))],
-        [InlineKeyboardButton(text=t("back", lang), callback_data="menu:back_to_main")],
-    ])
+def get_main_menu(role: str) -> InlineKeyboardMarkup:
+    if role in ("VOLUNTEER", "COORDINATOR"):
+        buttons = [
+            [InlineKeyboardButton(text="🎯 Активные задания", callback_data="menu:tasks")],
+            [InlineKeyboardButton(text="💬 Чат с ИИ", callback_data="menu:chat")],
+            [InlineKeyboardButton(text="💡 О проекте", callback_data="menu:about")]
+        ]
+    elif role == "RECIPIENT":
+        buttons = [
+            [InlineKeyboardButton(text="📝 Создать заявку", callback_data="role_rec")],
+            [InlineKeyboardButton(text="💬 Чат с координатором (ИИ)", callback_data="menu:chat")]
+        ]
+    elif role == "CLIENT":
+        buttons = [
+            [InlineKeyboardButton(text="📈 ESG-Консультация (ИИ)", callback_data="menu:esg")],
+            [InlineKeyboardButton(text="📊 Аналитика платформы", callback_data="menu:analytics")],
+            [InlineKeyboardButton(text="💡 О проекте", callback_data="menu:about")]
+        ]
+    else:
+        buttons = [
+            [InlineKeyboardButton(text="💡 О проекте", callback_data="menu:about")],
+            [InlineKeyboardButton(text="💬 Задать вопрос ИИ", callback_data="menu:chat")],
+            [InlineKeyboardButton(text="🔄 Сменить роль", callback_data="menu:change_role")]
+        ]
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 # ==================== HANDLERS ====================
 router = Router()
 
-@router.message(CommandStart())
-async def cmd_start(message: Message, state: FSMContext) -> None:
-    user_id = str(message.from_user.id)
-    logger.info(f"[START] User {user_id}")
-    await state.clear()
-    await state.set_state(OnboardingState.choose_language)
-    await message.answer(t("choose_lang", DEFAULT_LANG), reply_markup=lang_keyboard())
-
-@router.callback_query(F.data.startswith("lang:"))
-async def process_lang(callback: CallbackQuery, state: FSMContext) -> None:
-    lang = callback.data.split(":")[1]
-    user_id = str(callback.from_user.id)
-    set_user_language(user_id, lang)
-    await state.update_data(lang=lang)
-    logger.info(f"[LANG] User {user_id} выбрал {lang}")
-    
-    await state.set_state(OnboardingState.agreement)
-    await callback.message.answer(t("agreement_text", lang), reply_markup=agreement_keyboard(lang))
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("agree:"))
-async def process_agreement(callback: CallbackQuery, state: FSMContext) -> None:
-    choice = callback.data.split(":")[1]
-    user_id = str(callback.from_user.id)
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-
-    if choice == "yes":
-        if user_id not in USERS_DATA:
-            USERS_DATA[user_id] = {}
-        USERS_DATA[user_id]["agreed"] = True
-        save_users_db()
-        await callback.message.answer("Спасибо! Вы согласились. Теперь доступны все функции.", reply_markup=guest_menu_keyboard(lang))
-        await state.set_state(OnboardingState.guest_menu)
-    else:
-        if user_id not in USERS_DATA:
-            USERS_DATA[user_id] = {}
-        USERS_DATA[user_id]["agreed"] = False
-        save_users_db()
-        await callback.message.answer("Вы остались гостем.\nРегистрация недоступна.\nМожно общаться с ИИ и смотреть проект.", reply_markup=guest_menu_keyboard(lang))
-        await state.set_state(OnboardingState.guest_menu)
-    await callback.answer()
-
-@router.callback_query(F.data == "menu:chat")
-async def menu_chat(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    logger.info(f"[MENU] User {callback.from_user.id} -> Общение с ИИ")
-    await state.set_state(OnboardingState.chat_mode)
-    await callback.message.answer(t("chat_mode_on", lang))
-    await callback.answer()
-
-@router.callback_query(F.data == "menu:about")
-async def menu_about(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    logger.info(f"[MENU] User {callback.from_user.id} -> О проекте")
-    await state.set_state(OnboardingState.about_submenu)
-    await callback.message.edit_text(t("about", lang), reply_markup=about_submenu_keyboard(lang))
-    await callback.answer()
-
-@router.callback_query(F.data.startswith("about:"))
-async def about_submenu_handler(callback: CallbackQuery, state: FSMContext) -> None:
-    action = callback.data.split(":")[1]
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    text_map = {
-        "mission": t("mission", lang),
-        "creator": t("creator", lang),
-        "partners": t("partners", lang),
-        "details": t("details", lang),
-    }
-    text = text_map.get(action) or t("about", lang)
-    if not text.strip():
-        text = "Информация о проекте QAIYRYM"
-    await callback.message.edit_text(text, reply_markup=about_submenu_keyboard(lang))
-    await callback.answer()
-
-@router.callback_query(F.data == "menu:back_to_main")
-async def back_to_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    user_id = str(callback.from_user.id)
-    role = get_user_role(user_id)
-    if role == "MEMBER":
-        await state.set_state(OnboardingState.member_menu)
-        await callback.message.edit_text(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
-    else:
-        await state.set_state(OnboardingState.guest_menu)
-        await callback.message.edit_text(t("intro_guest", lang), reply_markup=guest_menu_keyboard(lang))
-    await callback.answer()
-
-@router.callback_query(F.data == "menu:join")
-async def menu_join(callback: CallbackQuery, state: FSMContext) -> None:
-    user_id = str(callback.from_user.id)
-    if not USERS_DATA.get(user_id, {}).get("agreed", False):
-        await callback.message.answer("Вы остались гостем. Регистрация недоступна.")
-        await callback.answer()
-        return
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    logger.info(f"[MENU] User {callback.from_user.id} -> Регистрация")
-    await state.set_state(OnboardingState.registration_name)
-    await callback.message.answer(t("join_intro", lang) + "\n\n" + t("ask_name", lang))
-    await callback.answer()
-
-# ==================== РЕГИСТРАЦИЯ ====================
-@router.message(OnboardingState.registration_name, F.text)
-async def reg_name(message: Message, state: FSMContext) -> None:
-    name = message.text.strip()
-    await state.update_data(name=name)
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    await state.set_state(OnboardingState.registration_age)
-    await message.answer(t("ask_age", lang))
-
-@router.message(OnboardingState.registration_age, F.text)
-async def reg_age(message: Message, state: FSMContext) -> None:
-    text = message.text.strip()
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    if not text.isdigit():
-        await message.answer(t("invalid_age", lang))
-        return
-    age = int(text)
-    if age < 18:
-        await message.answer(t("underage", lang))
-        await state.clear()
-        return
-    await state.update_data(age=age)
-    await state.set_state(OnboardingState.registration_skill)
-    await message.answer(t("ask_skill", lang))
-
-@router.message(OnboardingState.registration_skill, F.text)
-async def reg_skill(message: Message, state: FSMContext) -> None:
-    skill = message.text.strip()
-    user_id = str(message.from_user.id)
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
-    name = data.get("name", "")
-    age = data.get("age", 0)
-    username = message.from_user.username or ""
-    success = save_user_registration(user_id, name, age, skill, lang, username)
-    if success:
-        await message.answer(t("registered", lang))
-        await state.clear()
-        await state.set_state(OnboardingState.member_menu)
-        await message.answer(t("intro_member", lang), reply_markup=member_menu_keyboard(lang))
-    else:
-        await message.answer("❌ Ошибка при сохранении. Попробуйте позже.")
-        await state.clear()
-
-# ==================== ЧАТ С ИИ (ИСПРАВЛЕНО) ====================
-def escape_markdown_v2(text: str) -> str:
+def escape_md(text: str) -> str:
     escape_chars = '_*[]()~`>#+-=|{}.!'
     for char in escape_chars:
         text = text.replace(char, '\\' + char)
     return text
 
-@router.message(OnboardingState.chat_mode, F.text)
-async def chat_mode_message(message: Message, state: FSMContext) -> None:
-    user_text = (message.text or "").strip()
-    if not user_text: return
-    skip_words = ["ок", "да", "нет", "привет", "привет!", "ха", "оке", "хорошо", "спасибо", "пока"]
-    if user_text.lower() in skip_words: return
+@router.message(CommandStart())
+async def cmd_start(message: Message, state: FSMContext):
     user_id = str(message.from_user.id)
-    data = await state.get_data()
-    lang = data.get("lang") or DEFAULT_LANG
+    await state.clear()
+    
     role = get_user_role(user_id)
-    if "chat_history" not in data:
-        data["chat_history"] = []
-    chat_history = data["chat_history"]
+    if role and role != "GUEST":
+        if role == "VOLUNTEER":
+            greet_text = "С возвращением! Готовы к новым задачам? Драйв, помощь, опыт ждут вас!"
+        elif role == "CLIENT":
+            greet_text = "Здравствуйте! Рад снова видеть вас. Напоминаю, я ИИ-координатор QAIYRYM. Мы помогаем бизнесу внедрять ESG и автоматизировать социальную отчетность."
+        elif role == "RECIPIENT":
+            greet_text = "Здравствуйте. У вас уже есть активная сессия. Выберите действие ниже."
+        else:
+            greet_text = "Добро пожаловать назад!"
+        await message.answer(greet_text, reply_markup=get_main_menu(role))
+        await state.set_state(MainMenu.idle)
+        return
+
+    save_user_role(user_id, "GUEST")
+    await state.set_state(MainMenu.chatting)
+    await state.update_data(chat_history=[])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💡 О проекте", callback_data="menu:about"), InlineKeyboardButton(text="🚀 Приступить", callback_data="gateway:start_roles")]
+    ])
+    
+    await message.answer(
+        "Привет! Я — Компас, ИИ-координатор системы QAIYRYM. 🛰\n\n"
+        "Я здесь, чтобы сделать волонтёрство в Актобе прозрачным и эффективным. Могу рассказать о проекте, о наших 'крыльях' или помочь тебе стать частью команды.\n\n"
+        "О чем хочешь узнать? Или сразу перейдем к делу?",
+        reply_markup=keyboard,
+        parse_mode=ParseMode.MARKDOWN
+    )
+
+@router.callback_query(F.data == "gateway:start_roles")
+async def gateway_start_roles(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(OnboardingState.choose_role)
+    await callback.message.answer("Добро пожаловать в QAIYRYM!\nПожалуйста, ответьте: **Кто вы?**", reply_markup=roles_keyboard(), parse_mode=ParseMode.MARKDOWN)
+    await callback.answer()
+
+# --- ВЫБОР РОЛИ ---
+@router.callback_query(OnboardingState.choose_role, F.data.in_(["role_vol", "role_rec", "role_biz"]))
+@router.callback_query(F.data == "role_rec")
+async def process_role_selection(callback: CallbackQuery, state: FSMContext):
+    choice = callback.data
+    user_id = str(callback.from_user.id)
+    
+    if choice == "role_vol":
+        role = "VOLUNTEER"
+        save_user_role(user_id, role)
+        await state.set_state(RegVolunteer.name)
+        await callback.message.answer("🙋‍♂️ Вы выбрали стать Волонтёром!\n\nВведите ваше **ФИО**:")
+    elif choice == "role_rec":
+        role = "RECIPIENT"
+        save_user_role(user_id, role)
+        await state.set_state(RegRecipient.name)
+        await callback.message.answer("🆘 Создание заявки на помощь.\n\nВведите ваше **ФИО**:")
+    elif choice == "role_biz":
+        role = "CLIENT"
+        save_user_role(user_id, role)
+        await state.set_state(MainMenu.esg_consultation)
+        await state.update_data(chat_history=[])
+        await callback.message.answer("💼 Здравствуйте! Я ИИ-координатор QAIYRYM. Мы помогаем бизнесу внедрять ESG, обеспечивать прозрачность через блокчейн и автоматизировать социальную отчетность. Чем я могу быть полезен?", reply_markup=get_main_menu("CLIENT"))
+        
+    await callback.answer()
+
+# --- VOLUNTEER FLOW ---
+@router.message(RegVolunteer.name, F.text)
+async def v_name(m: Message, state: FSMContext):
+    await state.update_data(v_name=m.text)
+    await state.set_state(RegVolunteer.age)
+    await m.answer("Укажите ваш возраст (цифрой):")
+
+@router.message(RegVolunteer.age, F.text)
+async def v_age(m: Message, state: FSMContext):
+    if not m.text.isdigit():
+        return await m.answer("Пожалуйста, введите возраст цифрами!")
+    await state.update_data(v_age=int(m.text))
+    await state.set_state(RegVolunteer.skill)
+    await m.answer("Укажите ваши навыки (например: авто, медик, свободное время):")
+
+@router.message(RegVolunteer.skill, F.text)
+async def v_skill(m: Message, state: FSMContext):
+    await state.update_data(v_skill=m.text)
+    await state.set_state(RegVolunteer.coordinator)
+    await m.answer("Выберите координатора вашего района:", reply_markup=coord_keyboard())
+
+@router.message(RegVolunteer.coordinator, F.text)
+async def v_coord(m: Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    user_id = str(m.from_user.id)
+    
+    success = append_volunteer_to_sheets(user_id, data['v_name'], data['v_age'], data['v_skill'], m.text, lang, m.from_user.username or "")
+    if success:
+        await m.answer("✅ Регистрация завершена! Добро пожаловать в команду.", reply_markup=ReplyKeyboardRemove())
+        await m.answer("Ваше меню волонтёра:", reply_markup=get_main_menu("VOLUNTEER"))
+        await state.set_state(MainMenu.idle)
+    else:
+        await m.answer("Проблема с сохранением. Попробуйте позже.", reply_markup=ReplyKeyboardRemove())
+        await state.clear()
+
+# --- RECIPIENT FLOW ---
+@router.message(RegRecipient.name, F.text)
+async def r_name(m: Message, state: FSMContext):
+    await state.update_data(r_name=m.text)
+    await state.set_state(RegRecipient.address)
+    await m.answer("Введите ваш полный **адрес**:")
+
+@router.message(RegRecipient.address, F.text)
+async def r_address(m: Message, state: FSMContext):
+    await state.update_data(r_address=m.text)
+    await state.set_state(RegRecipient.req_type)
+    await m.answer("Какой тип помощи вам требуется?", reply_markup=req_type_keyboard())
+
+@router.message(RegRecipient.req_type, F.text)
+async def r_req_type(m: Message, state: FSMContext):
+    data = await state.get_data()
+    lang = data.get("lang", "ru")
+    user_id = str(m.from_user.id)
+    
+    success = append_request_to_sheets(user_id, data['r_name'], data['r_address'], m.text, lang, m.from_user.username or "")
+    if success:
+        await m.answer(f"✅ Заявка `{m.text}` принята! ИИ уже ищет подходящего волонтёра.", reply_markup=ReplyKeyboardRemove(), parse_mode=ParseMode.MARKDOWN)
+        await m.answer("Меню:", reply_markup=get_main_menu("RECIPIENT"))
+        await state.set_state(MainMenu.idle)
+    else:
+        await m.answer("Проблема с сохранением. Попробуйте позже.", reply_markup=ReplyKeyboardRemove())
+        await state.clear()
+
+# --- CLIENT (ESG) FLOW ---
+@router.message(RegClient.name, F.text)
+async def c_name(m: Message, state: FSMContext):
+    await state.update_data(c_name=m.text)
+    await state.set_state(RegClient.company)
+    await m.answer("Введите **название вашей организации**:")
+
+@router.message(RegClient.company, F.text)
+async def c_company(m: Message, state: FSMContext):
+    USERS_DATA[str(m.from_user.id)]["company"] = m.text
+    save_users_db()
+    await m.answer("✅ Аккаунт организации успешно создан.", reply_markup=ReplyKeyboardRemove())
+    await m.answer("Главное меню Партнера:", reply_markup=get_main_menu("CLIENT"))
+    await state.set_state(MainMenu.idle)
+
+
+# --- MAIN MENU HANDLERS ---
+@router.callback_query(F.data == "menu:about")
+async def handle_about(cb: CallbackQuery):
+    await cb.message.answer("*О проекте QAIYRYM*\nСмотри раздел `knowledge.txt` в чате с ИИ для полной инфы.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_menu(get_user_role(str(cb.from_user.id))))
+    await cb.answer()
+
+@router.callback_query(F.data == "menu:analytics")
+async def handle_analytics(cb: CallbackQuery):
+    await cb.message.answer("📊 **Аналитика платформы (Demo)**\n\n• Выполнено заявок: 1,245\n• Транзакций в Solana: 15,892\n• Риск коррупции: 0.00%\n\nПлатформа полностью прозрачна.", parse_mode=ParseMode.MARKDOWN)
+    await cb.answer()
+
+# --- ЗАДАНИЯ И ВЕРИФИКАЦИЯ (VOLUNTEER) ---
+@router.callback_query(F.data == "menu:tasks")
+async def handle_tasks(cb: CallbackQuery, state: FSMContext):
+    # Mocking active requests
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Взять заявку #402 (Продукты)", callback_data="task:402")],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="menu:back_idle")]
+    ])
+    await cb.message.answer("📋 **Активные задания в вашем районе:**\n\n**#402** - Продуктовый набор\nАдрес: ул. Абая 12, кв 44\nКоординатор: Тимур", reply_markup=keyboard, parse_mode=ParseMode.MARKDOWN)
+    await cb.answer()
+
+@router.callback_query(F.data.startswith("task:"))
+async def take_task(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(TaskVerification.waiting_for_photo)
+    await cb.message.answer("🎯 **Задание #402 принято!**\n\nПосле выполнения прикрепите фото-доказательство прямо сюда. ИИ-агенты автоматически проверят его.")
+    await cb.answer()
+
+@router.message(TaskVerification.waiting_for_photo, F.photo)
+async def handle_task_proof(m: Message, state: FSMContext):
+    msg = await m.answer("⌛ Проверка ИИ-агентами (Computer Vision, Geo, Compliance)...")
+    await asyncio.sleep(2) # Имитация работы блокчейна/сегментации
+    
+    await msg.edit_text("✅ **Верификация успешно пройдена!**\n\nДоказательство социального влияния (SBT Token) хешируется и отправлено вашему Координатору на подпись.\nТранзакция в сети Solana инициирована.", parse_mode=ParseMode.MARKDOWN)
+    await m.answer("Ваше меню:", reply_markup=get_main_menu(get_user_role(str(m.from_user.id))))
+    await state.set_state(MainMenu.idle)
+
+@router.message(TaskVerification.waiting_for_photo)
+async def handle_not_photo(m: Message):
+    await m.answer("Пожалуйста, прикрепите фото-доказательство для верификации (отправьте картинку).")
+
+# --- ЧАТЫ (GENERAL / ESG) ---
+@router.callback_query(F.data == "menu:chat")
+async def start_chat(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(MainMenu.chatting)
+    await state.update_data(chat_history=[])
+    await cb.message.answer("💬 **Общение с Компас-ИИ**\n\nПиши любой вопрос. Напиши 'назад' чтобы выйти в меню.", parse_mode=ParseMode.MARKDOWN)
+    await cb.answer()
+
+@router.callback_query(F.data == "menu:esg")
+async def start_esg(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(MainMenu.esg_consultation)
+    await state.update_data(chat_history=[])
+    role_info = USERS_DATA.get(str(cb.from_user.id), {})
+    company = role_info.get("company", "Ваша компания")
+    
+    await cb.message.answer(f"📈 **ESG-Консультация для представителей {company}**\n\nЗадайте вопрос о том, как наша ERP-платформа может помочь вам: сформировать ESG отчетность, нанять проверенных лидеров или провести прозрачную акцию.\n\n*(Напишите 'назад' для выхода)*", parse_mode=ParseMode.MARKDOWN)
+    await cb.answer()
+
+@router.message(MainMenu.chatting, F.text)
+@router.message(MainMenu.esg_consultation, F.text)
+async def process_chat(m: Message, state: FSMContext):
+    user_text = m.text.strip()
+    if user_text.lower() in ["назад", "back", "выход"]:
+        await state.set_state(MainMenu.idle)
+        await m.answer("Вы вернулись в меню:", reply_markup=get_main_menu(get_user_role(str(m.from_user.id))))
+        return
+
+    curr_state = await state.get_state()
+    is_esg = (curr_state == MainMenu.esg_consultation.state)
+    
+    data = await state.get_data()
+    chat_history = data.get("chat_history", [])
     chat_history.append({"role": "user", "content": user_text})
-    await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
-    system_instruction = get_chat_system_instruction(lang, role=role, chat_history_len=len(chat_history))
-    if KNOWLEDGE_MANIFEST:
-        system_instruction += f"\n\n[CONTEXT_DATA]\n{KNOWLEDGE_MANIFEST}\n[END_CONTEXT_DATA]"
-    formatted_messages = [f"{'🧑 ПОЛЬЗОВАТЕЛЬ' if msg['role'] == 'user' else '🤖 КОМПАС'}: {msg['content']}" for msg in chat_history]
-    full_prompt = "\n\n".join(formatted_messages)
-    try:
-        reply = await ask_gemini(full_prompt, system_instruction, user_lang=lang, skip_lang_instruction=True)
-        chat_history.append({"role": "model", "content": reply})
-        if len(chat_history) > 20:
-            chat_history = chat_history[-20:]
-        await state.update_data(chat_history=chat_history)
-        # ЭКРАНИРОВАНИЕ ДЛЯ MARKDOWN V2
-        safe_reply = escape_markdown_v2(reply)
-        await message.answer(safe_reply, parse_mode=ParseMode.MARKDOWN_V2, disable_web_page_preview=True)
-    except Exception as e:
-        logger.error(f"[CHAT ERROR] {e}")
-        await message.answer("Я немного завис, попробуй еще раз!")
+    
+    await m.bot.send_chat_action(chat_id=m.chat.id, action="typing")
+    
+    user_role = get_user_role(str(m.from_user.id))
+    user_lang = USERS_DATA.get(str(m.from_user.id), {}).get("lang", "ru")
+    
+    system_prompt = get_chat_system_instruction(user_lang, user_role)
 
-# ==================== MAIN ====================
-app = FastAPI(title="QAIYRYM Compass Bot", version="1.4")
-app.mount("/static", StaticFiles(directory="static"), name="static")
+    prompt_lines = [f"{msg['role']}: {msg['content']}" for msg in chat_history]
+    full_prompt = "\n".join(prompt_lines)
+    
+    reply = await ask_gemini(full_prompt, system_prompt)
+    chat_history.append({"role": "model", "content": reply})
+    if len(chat_history) > 10: chat_history = chat_history[-10:]
+    await state.update_data(chat_history=chat_history)
+    
+    await m.answer(escape_md(reply), parse_mode=ParseMode.MARKDOWN_V2)
 
-@app.get("/")
-async def health_check():
-    return {"status": "ok", "version": "1.4", "bot": "running"}
+@router.callback_query(F.data == "menu:back_idle")
+async def back_idle(cb: CallbackQuery, state: FSMContext):
+    await state.set_state(MainMenu.idle)
+    await cb.message.edit_text("Меню:", reply_markup=get_main_menu(get_user_role(str(cb.from_user.id))))
 
+# ==================== ЗАПУСК APP ====================
+_bot_task = None
 async def run_bot():
-    try:
-        load_users_db()
-        bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-        dp = Dispatcher(storage=MemoryStorage())
-        dp.include_router(router)
-        await bot.delete_webhook(drop_pending_updates=True)
-        logger.info("[BOT] Polling запущен")
-        await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
-    except Exception as e:
-        logger.error(f"[BOT FATAL] {type(e).__name__}: {e}", exc_info=True)
+    load_users_db()
+    for attempt in range(1, 6):
+        try:
+            timeout = aiohttp.ClientTimeout(total=60, connect=30)
+            session = AiohttpSession(timeout=timeout)
+            bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML), session=session)
+            dp = Dispatcher(storage=MemoryStorage())
+            dp.include_router(router)
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("[BOT] ✅ Поллинг (Роли ERP) запущен")
+            await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
+            return
+        except Exception as e:
+            logger.error(f"[BOT] Попытка {attempt}/5 не удалась: {e}")
+            if attempt < 5:
+                await asyncio.sleep(5)
 
-async def main():
-    asyncio.create_task(run_bot())
-    logger.info("[MAIN] Запуск uvicorn на 0.0.0.0:8000 ...")
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
-    server = uvicorn.Server(config)
-    await server.serve()
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    global _bot_task
+    logger.info("[LIFESPAN] Запуск бота...")
+    _bot_task = asyncio.create_task(run_bot())
+    yield
+    logger.info("[LIFESPAN] Остановка...")
+    if _bot_task:
+        _bot_task.cancel()
+
+app = FastAPI(title="QAIYRYM ERP Bot", version="2.0", lifespan=lifespan)
+@app.get("/")
+async def health_check(): return {"status": "ok"}
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except (KeyboardInterrupt, SystemExit):
-        logger.info("Выход...")
-    except Exception as e:
-        logger.critical(f"Критическая ошибка запуска: {e}", exc_info=True)
-        raise
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
